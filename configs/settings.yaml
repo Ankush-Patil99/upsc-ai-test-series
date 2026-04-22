@@ -1,0 +1,9 @@
+# Database Settings
+db:
+  postgres_url: "postgresql://upsc_user:upsc_password@127.0.0.1:5432/upsc_db"
+
+# Model Settings
+models:
+  mcq_llm_repo: "deepseek-ai/DeepSeek-V3"
+  classifier_llm_repo: "Qwen/Qwen2.5-14B-Instruct-1M"
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"  # Free HF embedding model

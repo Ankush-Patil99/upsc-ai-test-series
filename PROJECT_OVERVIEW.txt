@@ -1,0 +1,160 @@
+================================================================================
+ UPSC AI ENGINE — PROJECT OVERVIEW
+ Last Updated: 2026-04-20
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1: CURRENT AFFAIRS SOURCES (7 Sources, Auto-Scraped Every 24 Hours)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All 7 sources are scraped automatically by APScheduler (a cron job) once every
+24 hours. The scraped content is chunked, embedded via sentence-transformers,
+and stored in PostgreSQL + PGVector to serve as RAG context for MCQ generation.
+
+SOURCE 1: VisionIAS (visionias.in)
+  ├── Type     : PDF Download + Extraction
+  ├── Content  : Monthly Current Affairs Magazine (most popular IAS prep source)
+  └── Used For : Comprehensive monthly CA context for all GS subjects
+
+SOURCE 2: InsightsIAS (insightsonindia.com)
+  ├── Type     : PDF Download + Extraction
+  ├── Content  : Monthly Current Affairs compilation
+  └── Used For : Backup/complementary CA source for cross-referencing topics
+
+SOURCE 3: ForumIAS — 9PM Brief (forumias.com/blog/9pm/)
+  ├── Type     : HTML Scraping (BeautifulSoup DOM traversal)
+  ├── Content  : Daily 9PM Current Affairs Brief articles
+  └── Used For : Fresh, day-specific news summaries ingested daily into PGVector
+
+SOURCE 4: The Hindu (thehindu.com)
+  ├── Type     : RSS Feed (bypasses Cloudflare paywall — anti-bot method)
+  ├── RSS URL  : https://www.thehindu.com/opinion/editorial/feeder/default.rss
+  ├── Content  : Top 3 latest Editorial articles
+  └── Used For : High-quality editorial analysis for Essay + GS2/GS3 questions
+
+SOURCE 5: Indian Express (indianexpress.com)
+  ├── Type     : RSS Feed (bypasses Cloudflare paywall — anti-bot method)
+  ├── RSS URL  : https://indianexpress.com/section/explained/feed/
+  ├── Content  : Top 3 "Explained" section articles
+  └── Used For : In-depth explainers for complex topics (economy, polity, science)
+
+SOURCE 6: PIB — Press Information Bureau (pib.gov.in)
+  ├── Type     : HTML Scraping
+  ├── Content  : Official Government of India press releases
+  └── Used For : Authentic government policy data for GS2 (Governance) questions
+
+SOURCE 7: Drishti IAS — Environment Section (drishtiias.com)
+  ├── Type     : HTML Scraping (BeautifulSoup DOM traversal)
+  ├── URL      : https://www.drishtiias.com/tags/biodiversity-&-environment
+  ├── Content  : Curated Environment & Biodiversity news articles
+  └── Used For : Dedicated GS3 Environment topic context (IUCN, National Parks, etc.)
+
+NOTE: All scraped content is deduplicated before insertion (a de-duplicator
+      checks for chunk overlap with existing PGVector records to avoid repeat data).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2: LLMs USED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The engine uses a Cascade (waterfall) strategy — it tries each LLM in order
+and falls back to the next if the current one fails (rate limit / timeout).
+
+┌──────┬──────────────────┬──────────────────────────────────────┬───────────┐
+│ Pos. │ Provider         │ Model                                │ Role      │
+├──────┼──────────────────┼──────────────────────────────────────┼───────────┤
+│  1   │ Together AI      │ meta-llama/Llama-3-8b-chat-hf        │ PRIMARY   │
+│  2   │ OpenRouter       │ meta-llama/llama-3-8b-instruct       │ Fallback 1│
+│  3   │ Groq             │ llama-3.1-8b-instant                 │ Fallback 2│
+│  4   │ Cohere           │ command-r                            │ Fallback 3│
+│  5   │ Google Gemini    │ gemini-2.0-flash-lite                │ Emergency │
+└──────┴──────────────────┴──────────────────────────────────────┴───────────┘
+
+ALL LLMs are used ONLY for:
+  → Generating MCQ questions (question, 4 options, correct answer, explanation)
+  → Running the critique/hallucination guard node in LangGraph
+
+EMBEDDING MODEL (runs locally, NOT an external API):
+  → sentence-transformers (all-MiniLM-L6-v2 or similar)
+  → Used exclusively for converting text → vectors for PGVector storage/search
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3: WHAT WE HAVE BUILT AND WHAT WE ARE PLANNING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- WHAT IS CURRENTLY BUILT ---
+
+1. BACKEND (FastAPI + Python)
+   - /generate/{topic}       → Generates 1 MCQ on demand (single LangGraph run)
+   - /api/tests/             → Lists all cached mock tests from the DB
+   - /api/tests/{id}         → Fetches a full pre-generated mock test
+   - /ingest/system-book     → Ingests PDFs (NCERTs, textbooks) into PGVector
+   - /trigger-pipeline       → Manually triggers the CA scraper
+
+2. MCQ GENERATION ENGINE (LangGraph, 3-Node Graph)
+   - Node 1 (retrieve_context): Semantic search in PGVector for relevant CA chunks
+   - Node 2 (draft_mcq):        Sends context + prompt to LLM Cascade → gets MCQ JSON
+   - Node 3 (critique):         Hallucination guard (loops up to 2 times if MCQ is bad)
+
+3. DATABASE (PostgreSQL + PGVector via Docker)
+   - Tables: mock_tests, test_questions, users, test_sessions
+   - PGVector stores: CA article chunks + textbook chunks as vector embeddings
+
+4. AUTO-SCRAPER (APScheduler cron — every 24 hours)
+   - Scrapes all 7 CA sources listed in Section 1
+   - Embeds new chunks and upserts into PGVector
+
+5. BATCH GENERATOR (CLI script — batch_generator.py)
+   - Generates full 100-question mock tests offline
+   - Loops: generate 1 MCQ → save → sleep 4.5s → repeat N times
+
+6. FRONTEND (Static HTML/CSS/JS — CBT Simulator)
+   - Full Computer Based Test interface (like actual UPSC exam)
+   - Timer, question palette, answer marking
+   - Post-exam Analytics Engine (frontend NLP keyword inference)
+   - Subject-wise score breakdown (Polity, Economy, History, Environment, etc.)
+   - Detailed Solutions Accordions with rationale + mains hints
+
+--- WHAT WE ARE PLANNING (NEXT STEPS) ---
+
+1. LOCAL LLM VIA OLLAMA (GPU Upgrade — High Priority)
+   - Replace cloud API cascade with a local model (Qwen2.5-14B or Llama-3.1-8B)
+   - Run via Ollama → zero rate limits, zero API cost, fully offline
+   - Keep Google Gemini Flash as emergency cloud fallback only
+   - Install: ollama pull qwen2.5:14b  (if 16GB+ VRAM available)
+
+2. ASYNC BATCH ENDPOINT (Production Readiness)
+   - Expose POST /api/generate-batch  → accept {topic, count}
+   - Returns job_id immediately (non-blocking)
+   - Celery Worker + Redis queue runs generation in background
+   - GET /api/jobs/{job_id}  → frontend polls for progress (e.g., "6/10 done")
+
+3. REAL LLM CRITIQUE NODE (LangGraph Upgrade)
+   - Replace the current fake/hardcoded critique with a true LLM-as-judge
+   - The judge LLM checks: hallucinations, JSON compliance, option distinctness
+   - Only regenerates if the MCQ genuinely fails the check
+
+4. EMBEDDING MODEL UPGRADE
+   - Switch from all-MiniLM-L6-v2 to BAAI/bge-large-en-v1.5 (or nomic-embed-text)
+   - Better retrieval quality from PGVector for more relevant CA context
+   - Must re-embed entire PGVector store after switching
+
+5. FULL CLOUD DEPLOYMENT
+   - Move from local dev to Railway / Render / Fly.io
+   - Managed PostgreSQL (Supabase or Neon) with pgvector extension
+   - Managed Redis (Upstash free tier) for job queue
+   - Nginx for SSL, static file serving, load balancing
+
+6. FINE-TUNING A UPSC-SPECIFIC MODEL (Advanced — Week 2+)
+   - Build a training dataset from existing PYQs + PGVector-stored MCQs
+   - Fine-tune Llama-3.1-8B or Qwen2.5-7B using Unsloth + QLoRA
+   - Target: better JSON compliance, UPSC-specific factual accuracy
+
+7. BACKEND DATABASE SUBJECT TAGS
+   - Add a `subject` column to the test_questions PostgreSQL table
+   - AI natively tags each MCQ (Polity / Economy / History / Environment etc.)
+   - Replaces the current frontend-only keyword inference hack
+
+================================================================================
+ END OF OVERVIEW
+================================================================================
+

@@ -1,0 +1,15 @@
+
+services:
+  pgvector:
+    image: ankane/pgvector
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: upsc_user
+      POSTGRES_PASSWORD: upsc_password
+      POSTGRES_DB: upsc_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

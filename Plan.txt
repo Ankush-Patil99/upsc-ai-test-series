@@ -1,0 +1,363 @@
+================================================================================
+ UPSC AI ENGINE — GPU UPGRADE PLAN
+ Local LLM Strategy for LangGraph Framework
+ Generated: 2026-04-20
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 0: CURRENT STATE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Current LLM Cascade (all remote APIs, cloud-dependent):
+  - POSITION 1: Together AI → meta-llama/Llama-3-8b-chat-hf    (PRIMARY)
+  - POSITION 2: OpenRouter → meta-llama/llama-3-8b-instruct    (FALLBACK 1)
+  - POSITION 3: Groq      → llama-3.1-8b-instant               (FALLBACK 2)
+  - POSITION 4: Cohere    → command-r                           (FALLBACK 3)
+  - POSITION 5: Google    → gemini-2.0-flash-lite               (EMERGENCY)
+
+PROBLEMS with the current setup:
+  [X] Rate limits on free tiers cause 30-second sleep waits
+  [X] API costs will scale badly in production
+  [X] Internet dependency for every single MCQ generation
+  [X] No control over model behavior or fine-tuning
+  [X] Cascade adds latency overhead (retry loops)
+  [X] Models are generic — not UPSC-specialized
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1: SHOULD YOU USE AN EDUCATIONAL/UPSC-SPECIALIZED LLM?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SHORT ANSWER: YES — but not off-the-shelf. You need a general-purpose
+reasoning model that you fine-tune or prompt-engineer for UPSC.
+
+WHY a dedicated educational LLM beats a generic one for this use case:
+
+  1. UPSC MCQ Quality:
+     - Generic LLMs hallucinate UPSC-specific facts (acts, articles, treaties)
+     - A UPSC-tuned model learns the trickiness, distractors, and style of PYQs
+     - Your RAG pipeline (PGVector context) becomes significantly more effective
+       when the LLM knows how to USE the retrieved context for UPSC-style answers
+
+  2. Instruction Following:
+     - Your prompts require strict JSON output with keys:
+       question, options[], correct, explanation, mains_facts
+     - A well-fine-tuned model follows this reliably; generic 8B models often
+       wrap output in markdown, miss keys, or produce malformed JSON
+
+  3. Local = No Rate Limits:
+     - Eliminates the 30-second sleep-and-retry cascade entirely
+     - Generate 50+ MCQs in a batch without hitting API quotas
+     - Full control — stop paying per token
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2: BEST LOCAL MODEL RECOMMENDATION FOR YOUR GPU
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 1 — Identify your GPU first. Run this to check VRAM:
+  > nvidia-smi
+
+Then pick a tier:
+
+┌─────────────────┬──────────────────────────────────────────────────────────┐
+│ VRAM Available  │ Recommended Model                                        │
+├─────────────────┼──────────────────────────────────────────────────────────┤
+│ 6–8 GB          │ Mistral-7B-Instruct-v0.3   (Q4_K_M GGUF via Ollama)    │
+│ 10–16 GB        │ Llama-3.1-8B-Instruct      (Q5_K_M via Ollama)          │
+│ 16–24 GB        │ Llama-3.2-11B-Vision or    Phi-4 (14B Q4)               │
+│ 24+ GB          │ Llama-3.1-70B (Q2/Q3 GGUF) OR Qwen2.5-32B             │
+│ 48+ GB          │ Llama-3.3-70B-Instruct     (Q4/Q5 full quality)         │
+└─────────────────┴──────────────────────────────────────────────────────────┘
+
+TOP RECOMMENDATIONS FOR UPSC MCQ GENERATION (accuracy + speed balance):
+
+  🏆 BEST OVERALL: Qwen2.5-14B-Instruct (if ≥16GB VRAM)
+     - Outstanding instruction following, beats Llama-3 8B on factual tasks
+     - Excellent JSON output discipline
+     - Run via: ollama pull qwen2.5:14b
+
+  🥈 RUNNER UP: Llama-3.1-8B-Instruct (if 10–16GB VRAM)
+     - Familiar base (same as your current cascade), but local = no rate limits
+     - Run via: ollama pull llama3.1:8b
+
+  🥉 COMPACT POWERHOUSE: Mistral-7B-Instruct-v0.3 (if 6–8GB VRAM)
+     - Extremely fast, very instruction-compliant
+     - Run via: ollama pull mistral:7b-instruct
+
+  📚 EDUCATIONAL-SPECIFIC (if you want to fine-tune later):
+     Phi-4 (14B by Microsoft) — excellent for knowledge-dense Q&A tasks
+     Run via: ollama pull phi4
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3: STEP-BY-STEP ACTION PLAN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 1: INSTALL OLLAMA (Local Model Server)                        [Day 1]
+═══════════════════════════════════════════════════════════════════════════════
+
+  1.1  Download and install Ollama for Windows:
+       → https://ollama.com/download/windows
+
+  1.2  Check your GPU VRAM:
+       > nvidia-smi
+
+  1.3  Pull your chosen model (example for 16GB+ VRAM):
+       > ollama pull qwen2.5:14b
+
+       For 8GB VRAM:
+       > ollama pull mistral:7b-instruct
+
+  1.4  Test the model locally:
+       > ollama run qwen2.5:14b "What is Article 356 of the Indian Constitution?"
+
+  1.5  Verify Ollama server is running on:
+       http://localhost:11434
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 2: INTEGRATE OLLAMA INTO YOUR LANGGRAPH PIPELINE              [Day 1-2]
+═══════════════════════════════════════════════════════════════════════════════
+
+  2.1  Install the required package:
+       > pip install langchain-ollama
+
+  2.2  Modify src/mcq_generation/generator.py:
+       Replace the current cascade with a local-first + cloud fallback pattern:
+
+       FROM (current):
+         llm_cascade = [together_llm, openrouter_llm, groq_llm, cohere_llm, gemini_llm]
+
+       TO (new):
+         from langchain_ollama import ChatOllama
+         local_llm = ChatOllama(model="qwen2.5:14b", temperature=0.3)
+         # Keep cloud as fallback only for when GPU is unavailable
+         llm_cascade = [local_llm, gemini_llm, groq_llm]
+
+  2.3  Add Ollama URL to configs/settings.yaml:
+       ollama:
+         base_url: "http://localhost:11434"
+         model: "qwen2.5:14b"
+         fallback_model: "mistral:7b-instruct"
+
+  2.4  Add Ollama health check to your startup (api/ or main entry point):
+       - Ping http://localhost:11434/api/tags on startup
+       - If local model unavailable → gracefully fall back to cloud cascade
+       - Log which engine is active
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 3: UPGRADE LANGGRAPH GRAPH ARCHITECTURE                       [Day 2-3]
+═══════════════════════════════════════════════════════════════════════════════
+
+  Current graph: retrieve → draft → critique → [loop or end]
+  Problem: The critique node is FAKE (hardcoded, not a real LLM judge)
+
+  3.1  Make the critique node a REAL LLM-as-judge node:
+       - Feed draft_mcq + context to the local LLM
+       - Ask it: "Does this MCQ have any hallucinations? Output JSON: {pass: bool, critique: str}"
+       - Only loop if pass == false AND iterations < 3
+
+  3.2  Add a "validator" node after critique:
+       - Checks that all 4 options are distinct
+       - Checks that "correct" is one of the 4 options
+       - Checks mains_facts is < 50 words
+       - If validation fails → regenerate
+
+  3.3  Add a "difficulty calibrator" node:
+       - After draft, check if the question difficulty matches requested level
+       - Easy: direct factual recall | Medium: 2-statement elimination |
+         Hard: multi-concept integration like actual UPSC PYQs
+
+  3.4  Add LangGraph checkpointing (persistence):
+       from langgraph.checkpoint.sqlite import SqliteSaver
+       checkpointer = SqliteSaver.from_conn_string("checkpoints.db")
+       graph.compile(checkpointer=checkpointer)
+       - This allows resuming interrupted batch generations
+       - Critical for production stability
+
+  3.5  Add async support to batch_generator.py:
+       - Use asyncio + astream_events from LangGraph for streaming MCQ generation
+       - Send partial results to frontend as they complete
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 4: FINE-TUNING (OPTIONAL BUT POWERFUL)                        [Week 2]
+═══════════════════════════════════════════════════════════════════════════════
+
+  4.1  Build a UPSC training dataset:
+       - Export your PGVector store as JSON (question, answer, explanation)
+       - Scrape PYQs from UPSC website (your scraper.py already does this!)
+       - Format as instruction-following pairs:
+         {"instruction": "Generate UPSC MCQ on {topic}", "output": "{json}"}
+
+  4.2  Fine-tune using LLaMA-Factory or Unsloth (both free, GPU-accelerated):
+       > pip install unsloth
+       - Use QLoRA (4-bit fine-tuning) — works on 8–24GB VRAM
+       - Base model: Llama-3.1-8B-Instruct or Qwen2.5-7B
+       - Train for 1–3 epochs on your UPSC dataset
+
+  4.3  Export fine-tuned model to GGUF format:
+       > python convert_to_gguf.py --model ./fine_tuned_upsc_llm
+       - Load the GGUF into Ollama as a custom model
+
+  4.4  A/B test: Fine-tuned UPSC model vs base Qwen2.5
+       - Generate 50 MCQs with each
+       - Score: JSON compliance rate, factual accuracy, PYQ difficulty match
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 5: EMBEDDING MODEL UPGRADE                                    [Day 2]
+═══════════════════════════════════════════════════════════════════════════════
+
+  Current: sentence-transformers (HuggingFace, runs locally — GOOD)
+  But the model used has default settings. Upgrade to a better retriever:
+
+  5.1  Switch embedding model in configs/settings.yaml:
+       FROM: "all-MiniLM-L6-v2"  (or similar small model)
+       TO:   "BAAI/bge-large-en-v1.5"  OR  "nomic-ai/nomic-embed-text-v1"
+       - These are purpose-built for RAG retrieval and vastly improve
+         the quality of context retrieved from PGVector
+       - nomic-embed-text can also run via Ollama:
+         > ollama pull nomic-embed-text
+
+  5.2  Re-embed your entire PGVector collection after switching models
+       (embeddings are model-specific — old vectors become incompatible)
+       - Run your ingestion pipeline again after changing models
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 6: PERFORMANCE TUNING                                         [Day 3-4]
+═══════════════════════════════════════════════════════════════════════════════
+
+  6.1  Enable Ollama GPU acceleration:
+       - Verify: ollama run qwen2.5:14b --verbose (check "using GPU" in output)
+       - Set env var: OLLAMA_NUM_GPU=1 (or number of GPUs you have)
+
+  6.2  Tune Ollama for throughput:
+       Set in Ollama environment:
+         OLLAMA_NUM_PARALLEL=4   → allow 4 concurrent requests
+         OLLAMA_MAX_LOADED_MODELS=2  → keep model hot in VRAM
+         OLLAMA_FLASH_ATTENTION=1    → faster attention, less VRAM
+
+  6.3  Batch generation strategy:
+       - Use Python asyncio.gather() to send multiple LangGraph invocations
+         in parallel (each topic as a separate async task)
+       - Cap concurrency at 4–6 for a single GPU to avoid OOM errors
+
+  6.4  Add response caching:
+       - Cache MCQs per (topic, difficulty) key in Redis or SQLite
+       - Return cached MCQ if same topic+difficulty requested within 24h
+       - This reduces GPU load for repeated topics dramatically
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 7: DOCKER + PRODUCTION DEPLOYMENT                             [Week 2]
+═══════════════════════════════════════════════════════════════════════════════
+
+  7.1  Add Ollama as a Docker service in docker-compose.yml:
+       services:
+         ollama:
+           image: ollama/ollama
+           ports:
+             - "11434:11434"
+           volumes:
+             - ollama_data:/root/.ollama
+           deploy:
+             resources:
+               reservations:
+                 devices:
+                   - driver: nvidia
+                     count: 1
+                     capabilities: [gpu]
+
+  7.2  Add model auto-pull on startup:
+       - Add a Docker entrypoint script that runs:
+         ollama pull qwen2.5:14b && ollama serve
+
+  7.3  Add Prometheus metrics for monitoring:
+       - Track: MCQ generation latency, GPU utilization, cache hit rate,
+         fallback rate (times cloud API was used)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4: FILES TO MODIFY (PRIORITY ORDER)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  PRIORITY 1 (Do First):
+  ├── src/mcq_generation/generator.py   → Add local Ollama LLM as PRIMARY engine
+  ├── configs/settings.yaml             → Add ollama.base_url, ollama.model keys
+  └── requirements.txt                  → Add langchain-ollama>=0.1.0
+
+  PRIORITY 2 (Do Next):
+  ├── src/mcq_generation/generator.py   → Fix critique_node to be a real LLM judge
+  ├── src/mcq_generation/generator.py   → Add validator node to the LangGraph
+  └── src/mcq_generation/batch_generator.py → Convert to async/streaming
+
+  PRIORITY 3 (Optimize Later):
+  ├── configs/settings.yaml             → Upgrade embedding model to bge-large
+  ├── docker-compose.yml                → Add Ollama service with GPU passthrough
+  └── src/mcq_generation/generator.py   → Add LangGraph checkpointing
+
+  PRIORITY 4 (Advanced - Week 2):
+  ├── models/                           → Store fine-tuned GGUF model here
+  └── notebooks/                        → Add fine_tune_upsc.ipynb (Unsloth)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5: QUICK-START COMMANDS (Run these NOW)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # Step 1: Check your GPU
+  nvidia-smi
+
+  # Step 2: Install Ollama (download from https://ollama.com/download/windows)
+  # Then in PowerShell:
+  ollama --version
+
+  # Step 3: Pull the best model for your VRAM
+  ollama pull qwen2.5:14b           # for 16GB+ VRAM
+  # OR
+  ollama pull llama3.1:8b           # for 10-16GB VRAM
+  # OR
+  ollama pull mistral:7b-instruct   # for 6-8GB VRAM
+
+  # Step 4: Pull embedding model (replaces HuggingFace download)
+  ollama pull nomic-embed-text
+
+  # Step 5: Install Python package
+  pip install langchain-ollama
+
+  # Step 6: Test LangGraph with local LLM
+  python -c "from langchain_ollama import ChatOllama; llm = ChatOllama(model='qwen2.5:14b'); print(llm.invoke('What is UPSC?').content)"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6: EXPECTED OUTCOMES AFTER UPGRADE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  METRIC                    BEFORE (Cloud Cascade)   AFTER (Local GPU)
+  ──────────────────────────────────────────────────────────────────────
+  MCQ generation time       8–45 sec (with retries)  2–6 sec (steady)
+  Cost per 1000 MCQs        $2–15 (API costs)        $0 (electricity)
+  Rate limit failures       Common (30s sleeps)      None
+  JSON format compliance    ~70% (generic LLMs)      ~95% (fine-tuned)
+  UPSC factual accuracy     ~65%                     ~80%+ (with RAG)
+  Batch of 50 MCQs          4–20 minutes             3–5 minutes (async)
+  Offline operation         No                       Yes (fully offline)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7: DECISION FLOWCHART — EDUCATIONAL LLM vs CURRENT LLM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Q1: Do you have enough VRAM to run 7B–14B locally?
+      └─ YES → Use local Ollama model (Phase 1-2 of this plan)
+      └─ NO  → Keep cloud, upgrade to Gemini 1.5 Pro or GPT-4o-mini
+
+  Q2: Are your current MCQs hallucinating or failing JSON format?
+      └─ YES → Fine-tune a dedicated UPSC model (Phase 4)
+      └─ NO  → Stick with base Qwen2.5 + better prompts
+
+  Q3: Do you want to deploy to production with many concurrent users?
+      └─ YES → Add caching + async batching + Ollama with GPU (Phase 5-6-7)
+      └─ NO  → Local single-user setup is already sufficient after Phase 1-2
+
+  VERDICT: For your situation (GPU available, UPSC-specialized use case):
+  ► Run Qwen2.5-14B locally via Ollama AS PRIMARY
+  ► Keep Gemini Flash as cloud fallback ONLY
+  ► Eventually fine-tune on your own UPSC PYQ dataset for maximum accuracy
+
+================================================================================
+ END OF PLAN — Total estimated time: 1-2 weeks for full implementation
+ Start with SECTION 5 Quick-Start Commands TODAY
+================================================================================

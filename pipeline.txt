@@ -1,0 +1,888 @@
+================================================================================
+  UPSC AI TEST SERIES — COMPLETE PROJECT PIPELINE
+  From Local Development → Live Production (Ready for Student Users)
+  Last Updated: 2026-04-21
+================================================================================
+
+  This document is the single source of truth for this project.
+  It covers everything built, everything remaining, and every step
+  needed to go from local dev to a production-ready platform.
+
+================================================================================
+  PART A: WHAT HAS ALREADY BEEN BUILT
+  (Current State as of 2026-04-21)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+A.1  BACKEND — FastAPI (api/main.py)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Endpoint                   Method  Description
+  ─────────────────────────────────────────────────────────────────────────────
+  /generate/{topic}          GET     Generate 1 MCQ via LangGraph pipeline
+  /api/tests/                GET     List all pre-generated mock tests from DB
+  /api/tests/{id}            GET     Fetch full question set for a test
+  /ingest/system-book        POST    Upload + embed PDF into PGVector
+  /trigger-pipeline          POST    Manually trigger CA scraper
+  /app                       GET     Serve the frontend (index.html)
+  /ui                        GET     Alternate route for frontend
+  /static/*                  GET     Serve CSS, JS static files
+
+  Status: ✅ Complete and working
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+A.2  MCQ GENERATION ENGINE — LangGraph (src/mcq_generation/)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  3-node LangGraph pipeline:
+    Node 1 — retrieve_context : Semantic search PGVector → gets top K CA chunks
+    Node 2 — draft_mcq        : LLM cascade generates MCQ JSON
+    Node 3 — critique         : Hallucination guard (loops up to 2x if bad)
+
+  LLM Cascade (in priority order):
+    1. Together AI → meta-llama/Llama-3-8b-chat-hf   [PRIMARY]
+    2. OpenRouter  → meta-llama/llama-3-8b-instruct   [Fallback 1]
+    3. Groq        → llama-3.1-8b-instant             [Fallback 2]
+    4. Cohere      → command-r                         [Fallback 3]
+    5. Google      → gemini-2.0-flash-lite             [Emergency]
+
+  MCQ Output JSON format per question:
+    { question, options: {a,b,c,d}, correct_option, rationale, mains_hint }
+
+  Status: ✅ Core pipeline working (critique node is placeholder, not real LLM)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+A.3  DATABASE — PostgreSQL + PGVector (Docker)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  The database runs inside Docker (docker-compose up -d).
+
+  Tables currently in PostgreSQL:
+    mock_tests      → id, topic, count, created_at
+    test_questions  → id, test_id, question, options_json, correct_option,
+                      rationale, mains_hint
+    users           → id, email, name, role, created_at
+    test_sessions   → id, user_id, test_id, score, time_taken, attempted_at
+
+  PGVector collections:
+    ca_chunks       → Current Affairs article embeddings (7 sources, daily)
+    book_chunks     → NCERT / textbook embeddings (manual ingest)
+
+  Status: ✅ Schema in place, Docker running
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+A.4  AUTO-SCRAPER — APScheduler Cron (src/agents/scraper.py)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  7 sources scraped every 24 hours automatically:
+    1. VisionIAS             → PDF download + extraction (monthly CA)
+    2. InsightsIAS           → PDF download + extraction (monthly CA)
+    3. ForumIAS 9PM Brief    → HTML scraping (daily articles)
+    4. The Hindu             → RSS feed (top 3 editorials)
+    5. Indian Express        → RSS feed (Explained section)
+    6. PIB                   → HTML scraping (govt press releases)
+    7. Drishti IAS           → HTML scraping (Environment section)
+
+  Pipeline:  Scrape → Deduplicate → Chunk → Embed → Upsert into PGVector
+
+  Status: ✅ Working. Runs on startup with 24-hour interval.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+A.5  FRONTEND — Complete Redesign (frontend/)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Files: index.html, style.css, app.js
+  Served at: http://localhost:8000/app
+
+  Section 1 — Test Series (tests):
+    ✅ Sidebar navigation (collapsible, persists state)
+    ✅ Full Length Tests panel (collapsible, localStorage state)
+    ✅ Topic Wise Tests panel with 10-subject grid
+    ✅ Test cards with status badges (New / Attempted / In Progress)
+    ✅ Score progress bars on attempted cards
+    ✅ Difficulty badges (Easy / Medium / Hard) on topic tests
+    ✅ CBT Simulator (full exam interface)
+       - Question display with A/B/C/D options
+       - Question palette (color-coded status)
+       - Countdown timer with warning/danger states
+       - Mark for Review, Clear Response, Save & Next controls
+       - Auto-submit on time expiry
+    ✅ Post-exam Report
+       - Animated score ring
+       - Subject-wise performance bars
+       - Detailed solutions accordion with AI explanations
+       - Reattempt and Exit Report buttons
+
+  Section 2 — Analytics Dashboard:
+    ✅ Summary stats row (Rank, Avg Score, Tests Done, Weakest Subject)
+    ✅ Subject-wise Accuracy horizontal bar chart (Chart.js)
+       - Color-coded: green >70%, amber 50-70%, red <50%
+       - Clickable bars → opens subject drill-down panel
+    ✅ Score Trend line graph with moving average trendline
+       - Toggle between All / Polity / History / Geo & Env
+    ✅ AI Study Pattern Analysis card (distinct purple-tinted treatment)
+       - Weak topic clusters, peak performance time, improvement velocity
+    ✅ Subject drill-down panel with AI diagnosis
+    ✅ Attempt History paginated table
+       - Sortable columns (test name, date, score, rank, time)
+       - Search/filter input
+       - View modal → shows score, rank, AI post-test analysis
+
+  Section 3 — Question Generator:
+    ✅ Topic text input with dual-type autocomplete dropdown
+       - Keyword match suggestions (plain)
+       - Semantic suggestions (✦ indicator, purple styling)
+    ✅ Question count segmented control: 5 / 10 / 25 / 50
+    ✅ Generate button → calls /generate/{topic} API
+    ✅ Loading skeleton with animated progress bar + LangGraph step labels
+    ✅ Generated questions in card layout (A-D options, click to answer)
+    ✅ Answer reveal with green/red feedback + AI explanation block
+    ✅ Submit All button
+    ✅ Recent Generations history list with Regenerate button
+
+  Authentication:
+    ✅ Login / Signup overlay
+    ✅ Session persisted in localStorage
+    ✅ Sign out clears session and returns to login
+    ✅ User avatar and name displayed in sidebar
+
+  Shared:
+    ✅ Dark mode (default) + Light mode toggle via CSS variables
+    ✅ Mobile responsive: sidebar collapses to hamburger + bottom tab bar
+    ✅ Color palette: Primary #534AB7, Teal #1D9E75, Amber #BA7517, Red #E24B4A
+    ✅ Typography: Inter font, 16px base, generous whitespace
+    ✅ AI content blocks have distinct purple-tinted background treatment
+    ✅ Chart.js for all graphs
+    ✅ Smooth animations and hover micro-interactions throughoutb
+
+  Current Limitation:
+    ⚠ Analytics and Test data is mock/demo data (hardcoded in app.js)
+    ⚠ Auth is client-side only (no real backend JWT tokens)
+    ⚠ Test sessions not being saved to PostgreSQL test_sessions table yet
+
+================================================================================
+  PART B: WHAT NEEDS TO BE BUILT NEXT
+  (Ordered by Priority — from current state to production-ready)
+================================================================================
+
+════════════════════════════════════════════════════════════════════════════════
+PHASE 1: CONNECT REAL BACKEND DATA TO FRONTEND               [Priority: HIGH]
+         Estimated Time: 2–3 days
+════════════════════════════════════════════════════════════════════════════════
+
+  The frontend currently uses hardcoded mock data in app.js.
+  Every display value must be replaced with real API calls.
+
+  ── STEP 1.1: Backend — Add missing API endpoints ────────────────────────────
+
+  Add these to api/main.py:
+
+  A) POST /api/auth/register
+     Body: { name, email, password }
+     Action: Hash password (bcrypt), create user in PostgreSQL users table
+     Return: { user_id, name, email, token (JWT) }
+
+  B) POST /api/auth/login
+     Body: { email, password }
+     Action: Verify bcrypt hash, issue JWT token
+     Return: { user_id, name, email, token }
+
+  C) POST /api/sessions/submit
+     Auth: JWT required
+     Body: { test_id, answers: [{q_id, selected}], time_taken_secs }
+     Action: Calculate score, save to test_sessions table, save per-question result
+     Return: { score, rank, subject_breakdown }
+
+  D) GET /api/analytics/summary
+     Auth: JWT required
+     Return: { rank, avg_score, total_tests, weakest_subject }
+
+  E) GET /api/analytics/subject-accuracy
+     Auth: JWT required
+     Return: [ { subject, accuracy_pct, correct, total } ]
+
+  F) GET /api/analytics/score-trend
+     Auth: JWT required
+     Query: ?filter=all|polity|history|geo_env
+     Return: [ { test_num, score_pct, date } ] (last N tests)
+
+  G) GET /api/analytics/history
+     Auth: JWT required
+     Query: ?page=1&limit=10&sort=date&dir=desc&q=search_term
+     Return: { data: [...], total, pages }
+
+  H) GET /api/analytics/ai-insights
+     Auth: JWT required
+     Action: Analyze test_sessions for this user, generate LLM summary
+     Return: { insights_html } (regenerated after each test submission)
+
+  I) GET /api/tests/full-length
+     Return: list of full GS mock tests with status for this user
+
+  J) GET /api/tests/subject/{subject_name}
+     Return: list of topic tests for a subject with status for this user
+
+  ── STEP 1.2: Database — Add missing columns ──────────────────────────────────
+
+  Add to test_questions table:
+    ALTER TABLE test_questions ADD COLUMN subject VARCHAR(50);
+    ALTER TABLE test_questions ADD COLUMN difficulty VARCHAR(10) DEFAULT 'medium';
+    ALTER TABLE test_questions ADD COLUMN paper_type VARCHAR(20);
+
+  Create new table for per-question attempt tracking:
+    CREATE TABLE question_results (
+      id           SERIAL PRIMARY KEY,
+      session_id   INTEGER REFERENCES test_sessions(id),
+      question_id  INTEGER REFERENCES test_questions(id),
+      selected     VARCHAR(1),     -- a, b, c, d OR NULL (skipped)
+      is_correct   BOOLEAN,
+      created_at   TIMESTAMP DEFAULT NOW()
+    );
+
+  Create ranking view:
+    CREATE VIEW user_rankings AS
+    SELECT user_id, AVG(score) as avg_score,
+           RANK() OVER (ORDER BY AVG(score) DESC) as rank
+    FROM test_sessions GROUP BY user_id;
+
+  ── STEP 1.3: Frontend — Replace mock data with API calls ────────────────────
+
+  In app.js, replace all MOCK_* constants and hardcoded values with fetch() calls:
+
+  A) On login/signup:
+     - Call POST /api/auth/login or /register
+     - Store JWT token in localStorage (key: 'upsc_token')
+     - Attach token as "Authorization: Bearer {token}" to all subsequent requests
+
+  B) On entering analytics section:
+     - Call GET /api/analytics/summary → update stat cards
+     - Call GET /api/analytics/subject-accuracy → redraw subject chart
+     - Call GET /api/analytics/score-trend → redraw trend chart
+     - Call GET /api/analytics/ai-insights → update AI analysis card
+     - Call GET /api/analytics/history → render table
+
+  C) On entering test series section:
+     - Call GET /api/tests/full-length → render full-length test cards
+     - Call GET /api/tests/ (existing) → also works for this
+
+  D) After exam submission (submitExam function):
+     - Call POST /api/sessions/submit with all answers
+     - Use real server-calculated score and rank in report
+     - Trigger analytics refresh
+
+  E) In generator section:
+     - Already calls /generate/{topic} — no change needed here
+     - Watch issue: /generate/{topic} only returns 1 MCQ per call
+       ⚠ For count > 1, frontend loops N times sequentially → slow
+       → Fix: Add batch endpoint (see Phase 2)
+
+════════════════════════════════════════════════════════════════════════════════
+PHASE 2: BATCH QUESTION GENERATION API                       [Priority: HIGH]
+         Estimated Time: 2 days
+════════════════════════════════════════════════════════════════════════════════
+
+  Current problem: Generating 10 questions requires 10 sequential API calls.
+  Each call takes 5–30 seconds. Total: up to 5 minutes for 10 questions.
+
+  Solution: Async job-based batch endpoint with polling.
+
+  ── STEP 2.1: Install dependencies ───────────────────────────────────────────
+
+  pip install celery redis
+
+  Or use a simpler Python asyncio approach (no Redis needed):
+  pip install fastapi-background-tasks  (already in FastAPI)
+
+  ── STEP 2.2: Add batch generation endpoint ──────────────────────────────────
+
+  In api/main.py, add:
+
+    POST /api/generate-batch
+    Body: { topic: str, count: int, difficulty: str }
+    Action:
+      1. Create a job record (job_id = UUID) in-memory or in Redis
+      2. Launch asyncio background task → generate questions one by one
+      3. Return immediately: { job_id, status: "pending" }
+
+    GET /api/jobs/{job_id}
+    Return: {
+      status: "pending"|"generating"|"complete"|"failed",
+      progress: { done: 4, total: 10 },
+      questions: [ ...completed MCQs so far... ]
+    }
+
+  ── STEP 2.3: Update frontend to use streaming progress ──────────────────────
+
+  In app.js, generateMCQs() function:
+    - Call POST /api/generate-batch
+    - Get job_id back
+    - Poll GET /api/jobs/{job_id} every 2 seconds
+    - Update loading progress bar from response.progress.done / total
+    - Stream completed questions into the UI as they arrive (don't wait for all)
+    - Mark complete when status === "complete"
+
+════════════════════════════════════════════════════════════════════════════════
+PHASE 3: REAL AI-GENERATED ANALYTICS INSIGHTS               [Priority: MEDIUM]
+         Estimated Time: 1–2 days
+════════════════════════════════════════════════════════════════════════════════
+
+  Right now the AI Study Pattern Analysis card shows hardcoded dummy text.
+  Replace with real LLM analysis of the student's actual performance data.
+
+  ── STEP 3.1: Create AI insights generator ───────────────────────────────────
+
+  In src/agents/ add insights_generator.py:
+
+    def generate_user_insights(user_id: int, db: Session) -> str:
+      # Pull last 20 test sessions for this user
+      sessions = db.query(TestSession).filter_by(user_id=user_id).limit(20).all()
+
+      # Build performance summary dict
+      perf = {
+        "total_tests": len(sessions),
+        "avg_score": mean([s.score for s in sessions]),
+        "subject_scores": { compute per subject from question_results },
+        "time_patterns": { group sessions by hour of day },
+        "trend": [ s.score for s in sessions ]  # chronological
+      }
+
+      # Build prompt
+      prompt = f"""
+      You are a UPSC exam coach. Analyze this student's performance:
+      {json.dumps(perf)}
+
+      Provide a 4-section analysis in plain English covering:
+      1. Weak topic clusters that need urgent revision
+      2. Time-of-day performance pattern (when they perform best)
+      3. Improvement velocity (which subjects are improving fastest)
+      4. Specific topics to revise next (mention actual UPSC-relevant facts)
+
+      Keep each section to 2-3 sentences. Be specific and actionable.
+      """
+
+      # Use local Ollama or cloud LLM cascade
+      response = llm_cascade.invoke(prompt)
+      return response.content
+
+  ── STEP 3.2: Wire to API endpoint ───────────────────────────────────────────
+
+    GET /api/analytics/ai-insights → calls generate_user_insights()
+    Cache the result in Redis/memory for 1 hour per user
+    Invalidate cache when user submits a new test
+
+════════════════════════════════════════════════════════════════════════════════
+PHASE 4: SUBJECT TAGGING FOR QUESTIONS                       [Priority: MEDIUM]
+         Estimated Time: 1 day
+════════════════════════════════════════════════════════════════════════════════
+
+  Currently, subject classification is done via a client-side keyword hack in
+  app.js (inferSubject function). This is inaccurate. Replace with proper
+  AI-based tagging stored in the database.
+
+  ── STEP 4.1: Auto-tag questions during generation ───────────────────────────
+
+  In the LangGraph draft_mcq node, add to the prompt:
+    "Also output: subject (one of: Polity, History, Geography, Economy,
+     Environment, Science & Technology, Current Affairs, Ethics, Art & Culture,
+     Internal Security)"
+
+  Store the returned subject in test_questions.subject column.
+
+  ── STEP 4.2: Update batch generator ─────────────────────────────────────────
+
+  In src/mcq_generation/batch_generator.py, make sure the subject field
+  is extracted from the LLM JSON output and saved to the DB column.
+
+  ── STEP 4.3: Remove frontend keyword inference ──────────────────────────────
+
+  In app.js, remove the inferSubject() function entirely.
+  When submitting exam results, use subject from the question data
+  returned by /api/tests/{id} (which now includes the subject field).
+
+════════════════════════════════════════════════════════════════════════════════
+PHASE 5: LOCAL LLM VIA OLLAMA (GPU Upgrade)                 [Priority: MEDIUM]
+         Estimated Time: 1 day setup + model pull time
+════════════════════════════════════════════════════════════════════════════════
+
+  Replace the cloud API cascade with a local model to eliminate rate limits
+  and reduce latency. Keep Google Gemini as emergency fallback only.
+
+  ── STEP 5.1: Check your GPU VRAM ────────────────────────────────────────────
+
+    nvidia-smi
+
+  ── STEP 5.2: Install Ollama ──────────────────────────────────────────────────
+
+    Download from: https://ollama.com/download/windows
+    Verify: ollama --version
+
+  ── STEP 5.3: Pull model based on your VRAM ──────────────────────────────────
+
+    VRAM ≥ 16GB  →  ollama pull qwen2.5:14b         [RECOMMENDED]
+    VRAM 10–16GB →  ollama pull llama3.1:8b
+    VRAM 6–8GB   →  ollama pull mistral:7b-instruct
+
+  ── STEP 5.4: Pull embedding model ────────────────────────────────────────────
+
+    ollama pull nomic-embed-text
+    (Replaces HuggingFace sentence-transformers, better RAG retrieval)
+
+  ── STEP 5.5: Install Python package ──────────────────────────────────────────
+
+    pip install langchain-ollama
+
+  ── STEP 5.6: Update generator.py ────────────────────────────────────────────
+
+    In src/mcq_generation/generator.py, change the LLM cascade:
+
+    FROM:
+      llm_cascade = [together_llm, openrouter_llm, groq_llm, cohere_llm, gemini_llm]
+
+    TO:
+      from langchain_ollama import ChatOllama
+      local_llm = ChatOllama(model="qwen2.5:14b", temperature=0.3)
+      llm_cascade = [local_llm, gemini_llm, groq_llm]  # cloud as fallback only
+
+  ── STEP 5.7: Upgrade critique node to real LLM judge ─────────────────────────
+
+    In the critique node of LangGraph, replace the hardcoded pass with:
+
+    critique_prompt = f"""
+    Review this MCQ for quality issues:
+    Question: {mcq.question}
+    Options: {mcq.options}
+    Correct: {mcq.correct_option}
+    Explanantion: {mcq.rationale}
+
+    Check for: hallucinations, all 4 options distinct, correct answer valid.
+    Output JSON: {{ "pass": true/false, "issue": "description if failed" }}
+    """
+    result = local_llm.invoke(critique_prompt)
+    → Only regenerate if pass == false AND attempts < 3
+
+  ── STEP 5.8: Add startup health check ────────────────────────────────────────
+
+    In api/main.py lifespan function, add:
+      import httpx
+      try:
+          r = httpx.get("http://localhost:11434/api/tags", timeout=3)
+          print("[LLM] Ollama local model: ONLINE")
+      except:
+          print("[LLM] Ollama not detected. Falling back to cloud cascade.")
+
+════════════════════════════════════════════════════════════════════════════════
+PHASE 6: REAL AUTHENTICATION (JWT)                          [Priority: HIGH]
+         Estimated Time: 1–2 days
+════════════════════════════════════════════════════════════════════════════════
+
+  Currently auth is handled purely in the browser (localStorage only).
+  Add a real JWT-based auth backend so sessions are secure.
+
+  ── STEP 6.1: Install dependencies ───────────────────────────────────────────
+
+    pip install python-jose[cryptography] passlib[bcrypt] python-multipart
+
+  ── STEP 6.2: Create auth.py in api/ ─────────────────────────────────────────
+
+    - create_access_token(data: dict) → returns signed JWT
+    - verify_token(token: str) → returns user_id or raises 401
+    - get_current_user dependency → inject into protected endpoints
+
+  ── STEP 6.3: Add auth endpoints to main.py ──────────────────────────────────
+
+    POST /api/auth/register  → hash password, insert user, return JWT
+    POST /api/auth/login     → verify password, return JWT
+
+  ── STEP 6.4: Protect endpoints with JWT ──────────────────────────────────────
+
+    All /api/analytics/* and /api/sessions/* endpoints require:
+    current_user = Depends(get_current_user)
+
+  ── STEP 6.5: Update frontend auth ───────────────────────────────────────────
+
+    In app.js handleLogin() and handleSignup():
+    - Remove localStorage fake auth
+    - Call real POST /api/auth/login or /register
+    - Store returned JWT: localStorage.setItem('upsc_token', token)
+
+    Add helper function for all API calls:
+    function apiFetch(url, options={}) {
+      const token = localStorage.getItem('upsc_token');
+      return fetch(url, {
+        ...options,
+        headers: { ...options.headers, 'Authorization': `Bearer ${token}` }
+      });
+    }
+
+════════════════════════════════════════════════════════════════════════════════
+PHASE 7: TEST SERIES DATA — PRE-GENERATE FULL MOCK TESTS    [Priority: HIGH]
+         Estimated Time: 1–2 days
+════════════════════════════════════════════════════════════════════════════════
+
+  Students need tests available BEFORE they log in.
+  These must be pre-generated and stored in the DB.
+
+  ── STEP 7.1: Run batch generator CLI ────────────────────────────────────────
+
+  Use existing batch_generator.py to generate full 100-question mock tests.
+
+  For each paper type, run:
+    python src/mcq_generation/batch_generator.py --topic "GS Paper 1" --count 100
+    python src/mcq_generation/batch_generator.py --topic "GS Paper 2 Polity IR" --count 100
+    python src/mcq_generation/batch_generator.py --topic "GS Paper 3 Economy Env Sci" --count 100
+
+  For subject-wise topic tests, generate 15–25 question sets per topic:
+    python batch_generator.py --topic "Fundamental Rights & DPSP" --count 25
+    python batch_generator.py --topic "Ancient India Civilizations" --count 20
+    python batch_generator.py --topic "RBI Monetary Policy" --count 20
+    ... (all 10 subjects, 2-3 tests each)
+
+  ── STEP 7.2: Tag all generated questions ────────────────────────────────────
+
+  After generation, run a one-time tagging script:
+    python utils/tag_questions.py  (create this script)
+
+  This script loops through all test_questions with subject=NULL,
+  sends each question text to the LLM to classify subject + difficulty,
+  and updates the DB columns.
+
+  ── STEP 7.3: Update GET /api/tests/full-length ──────────────────────────────
+
+  This endpoint should return mock_tests with the status per user:
+  - Join with test_sessions for the requesting user (via JWT)
+  - If session exists → status = "attempted", include last score
+  - If no session but test exists in DB → status = "new"
+
+════════════════════════════════════════════════════════════════════════════════
+PHASE 8: POLISH, TESTING & OPTIMIZATION                     [Priority: MEDIUM]
+         Estimated Time: 2–3 days
+════════════════════════════════════════════════════════════════════════════════
+
+  ── STEP 8.1: End-to-end testing ─────────────────────────────────────────────
+
+  Test the full student journey manually:
+    □ Register new account
+    □ View test library (full + subject wise)
+    □ Attempt a full 100-question test within time limit
+    □ Submit exam → see report with subject bars + solutions
+    □ Check analytics dashboard — rank, avg, charts all reflect this attempt
+    □ Use question generator → generate 10 Qs, answer, submit all, see explanations
+    □ Check attempt history table — new test appears, sortable
+    □ Log out and log in again — session restored correctly
+
+  ── STEP 8.2: Performance ─────────────────────────────────────────────────────
+
+    - Add database indexes:
+        CREATE INDEX ON test_sessions(user_id);
+        CREATE INDEX ON question_results(session_id);
+        CREATE INDEX ON test_questions(test_id);
+
+    - Add backend response caching (fastapi-cache2 or Redis):
+        Cache /api/tests/, /api/tests/{id} for 1 hour
+        Cache /api/analytics/ai-insights per user for 1 hour
+
+    - Gzip/compress API responses: add GZipMiddleware to FastAPI
+
+  ── STEP 8.3: Error handling improvements ────────────────────────────────────
+
+    - Add proper 401/403 responses for expired JWT tokens
+    - Frontend: detect 401 → auto-redirect to login page
+    - Backend: add global exception handler for unhandled errors
+    - Frontend: add toast notifications for success/error states
+      (e.g., "Test submitted successfully!", "Network error — please retry")
+
+  ── STEP 8.4: Mobile UX check ────────────────────────────────────────────────
+
+    - Open on mobile browser — verify bottom tab bar shows
+    - Verify CBT palette panel collapses correctly on mobile
+    - Verify charts resize properly on small screens
+    - Test touch interactions on MCQ options and exam palette
+
+════════════════════════════════════════════════════════════════════════════════
+PHASE 9: DEPLOYMENT — PRODUCTION LAUNCH                     [Priority: FINAL]
+         Estimated Time: 3–5 days
+════════════════════════════════════════════════════════════════════════════════
+
+  Goal: Move from local machine to a public URL that students can access.
+  Recommended stack: Railway (simple) or self-host on VPS (more control).
+
+  ──────────────────────────────────────────────────────────────────────────────
+  OPTION A: RAILWAY (Recommended for fastest launch)
+  ──────────────────────────────────────────────────────────────────────────────
+
+  ── STEP 9-A.1: Create accounts and install CLI ───────────────────────────────
+
+    1. Create account at https://railway.app
+    2. Install Railway CLI:
+         npm install -g @railway/cli  (or use the web dashboard)
+    3. Login: railway login
+
+  ── STEP 9-A.2: Set up managed PostgreSQL + pgvector ─────────────────────────
+
+    Option 1 (Supabase — has pgvector):
+      - Create account at https://supabase.com
+      - Create new project → get PostgreSQL connection string
+      - Enable pgvector: in Supabase SQL editor → CREATE EXTENSION vector;
+      - Copy connection string to .env:
+          DATABASE_URL=postgresql://user:pass@host:5432/dbname
+
+    Option 2 (Neon — serverless postgres + pgvector):
+      - Create account at https://neon.tech
+      - Create project → enable pgvector extension
+      - Direct connection URL → paste in .env
+
+  ── STEP 9-A.3: Prepare the project for deployment ───────────────────────────
+
+    A) Create Procfile in project root:
+         web: python -m uvicorn api.main:app --host 0.0.0.0 --port $PORT
+
+    B) Update requirements.txt to include all production packages:
+         fastapi, uvicorn[standard], sqlalchemy, psycopg2-binary,
+         pgvector, langchain, langchain-community, langgraph,
+         python-jose[cryptography], passlib[bcrypt], python-multipart,
+         apscheduler, beautifulsoup4, httpx, celery, redis, python-dotenv
+
+    C) Create .env.production with all secrets:
+         DATABASE_URL=postgresql://...
+         SECRET_KEY=your-jwt-secret-key-here-minimum-32-chars
+         TOGETHER_API_KEY=...
+         GROQ_API_KEY=...
+         COHERE_API_KEY=...
+         GOOGLE_API_KEY=...
+         OPENROUTER_API_KEY=...
+         REDIS_URL=redis://... (if using batch endpoint)
+
+    D) Update api/models.py to use DATABASE_URL env variable:
+         import os
+         DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/upsc")
+         engine = create_engine(DATABASE_URL)
+
+    E) Update CORS settings in api/main.py:
+         from fastapi.middleware.cors import CORSMiddleware
+         app.add_middleware(CORSMiddleware,
+           allow_origins=["https://your-domain.railway.app", "http://localhost:8000"],
+           allow_credentials=True,
+           allow_methods=["*"],
+           allow_headers=["*"]
+         )
+
+  ── STEP 9-A.4: Deploy to Railway ────────────────────────────────────────────
+
+    In PowerShell from project root:
+      railway init
+      railway link  (link to your Railway project)
+      railway up    (deploy)
+
+    Set environment variables in Railway dashboard:
+      (copy all from .env.production)
+
+    Railway will auto-detect Python and start the server.
+    Your app will have a public URL like:
+      https://upsc-test-series-production.up.railway.app
+
+  ── STEP 9-A.5: Set up custom domain (optional) ──────────────────────────────
+
+    In Railway dashboard → Settings → Domains → Add Custom Domain
+    Point your domain's DNS to Railway (CNAME record)
+    Railway provides free SSL (HTTPS)
+
+  ──────────────────────────────────────────────────────────────────────────────
+  OPTION B: SELF-HOSTED VPS (Ubuntu server, more control)
+  ──────────────────────────────────────────────────────────────────────────────
+
+  Recommended providers: DigitalOcean, Hetzner, Vultr (cheapest)
+  Spec needed: 2 CPU, 4GB RAM, 40GB SSD minimum
+
+  ── STEP 9-B.1: Set up VPS ───────────────────────────────────────────────────
+
+    1. Create Ubuntu 22.04 droplet / server
+    2. SSH into server: ssh root@your-server-ip
+    3. Update packages:
+         apt update && apt upgrade -y
+    4. Install Docker + Docker Compose:
+         curl -fsSL https://get.docker.com | sh
+         apt install docker-compose-plugin -y
+    5. Install Nginx:
+         apt install nginx -y
+
+  ── STEP 9-B.2: Upload project ───────────────────────────────────────────────
+
+    From your local machine:
+      git init  (if not already)
+      git add . && git commit -m "production ready"
+      git push to GitHub
+
+    On the server:
+      git clone https://github.com/yourusername/upsc-test-series.git
+      cd upsc-test-series
+
+  ── STEP 9-B.3: Update docker-compose.yml ───────────────────────────────────
+
+    version: '3.8'
+    services:
+      pgvector:
+        image: pgvector/pgvector:pg16
+        environment:
+          POSTGRES_DB: upsc_db
+          POSTGRES_USER: upsc_user
+          POSTGRES_PASSWORD: ${DB_PASSWORD}
+        volumes:
+          - pgdata:/var/lib/postgresql/data
+        restart: always
+
+      redis:
+        image: redis:alpine
+        restart: always
+
+      app:
+        build: .
+        ports:
+          - "8000:8000"
+        env_file: .env.production
+        depends_on:
+          - pgvector
+          - redis
+        restart: always
+
+    volumes:
+      pgdata:
+
+  ── STEP 9-B.4: Create Dockerfile ────────────────────────────────────────────
+
+    FROM python:3.11-slim
+    WORKDIR /app
+    COPY requirements.txt .
+    RUN pip install --no-cache-dir -r requirements.txt
+    COPY . .
+    EXPOSE 8000
+    CMD ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  ── STEP 9-B.5: Configure Nginx reverse proxy ────────────────────────────────
+
+    Create /etc/nginx/sites-available/upsc:
+
+    server {
+        listen 80;
+        server_name yourdomain.com www.yourdomain.com;
+
+        location / {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+    }
+
+    Enable and restart:
+      ln -s /etc/nginx/sites-available/upsc /etc/nginx/sites-enabled/
+      nginx -t && systemctl restart nginx
+
+  ── STEP 9-B.6: Add SSL certificate (HTTPS) ──────────────────────────────────
+
+    apt install certbot python3-certbot-nginx -y
+    certbot --nginx -d yourdomain.com -d www.yourdomain.com
+    (Certbot auto-renews every 90 days)
+
+  ── STEP 9-B.7: Start all services ───────────────────────────────────────────
+
+    docker-compose up -d
+    → App now live at https://yourdomain.com
+
+  ──────────────────────────────────────────────────────────────────────────────
+  STEP 9.X: POST-DEPLOYMENT VERIFICATION CHECKLIST
+  ──────────────────────────────────────────────────────────────────────────────
+
+    □ Open https://yourdomain.com → login screen loads
+    □ Register new student account
+    □ Start a full-length test → questions load from DB
+    □ Submit exam → report shows, data saved to PostgreSQL
+    □ Analytics page → charts reflect submitted test
+    □ Generate questions on a topic → returns in <30 seconds
+    □ On mobile device → bottom nav shows, exam works
+    □ Check server logs → no 500 errors
+    □ Verify PostgreSQL backups are enabled (Railway/Supabase do this automatically)
+
+================================================================================
+  PART C: QUICK-START COMMANDS (Day-to-Day Development)
+================================================================================
+
+  Start everything locally (run in PowerShell from D:\upsc test series):
+
+    # 1. Start database
+    docker-compose up -d
+
+    # 2. Start web server
+    python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+    # 3. Open browser
+    # http://localhost:8000/app
+
+  Stop everything:
+
+    # Stop web server
+    Ctrl+C in the PowerShell window running uvicorn
+
+    # Stop database
+    docker-compose down
+
+  Manually trigger CA scraper (re-ingest all 7 sources now):
+
+    curl -X POST http://localhost:8000/trigger-pipeline
+
+  Generate a batch of questions offline (via CLI):
+
+    python src/mcq_generation/batch_generator.py --topic "Polity" --count 25
+
+================================================================================
+  PART D: ENVIRONMENT VARIABLES (.env file)
+================================================================================
+
+  File location: D:\upsc test series\.env
+
+  Required variables:
+    DATABASE_URL=postgresql://user:pass@localhost:5432/upsc_db
+    SECRET_KEY=your-super-secret-jwt-signing-key-min-32-characters
+    TOGETHER_API_KEY=your_together_ai_key
+    OPENROUTER_API_KEY=your_openrouter_key
+    GROQ_API_KEY=your_groq_key
+    COHERE_API_KEY=your_cohere_key
+    GOOGLE_API_KEY=your_google_gemini_key
+    REDIS_URL=redis://localhost:6379  (optional, for batch jobs)
+    OLLAMA_BASE_URL=http://localhost:11434  (after installing Ollama)
+    OLLAMA_MODEL=qwen2.5:14b  (or appropriate model for your VRAM)
+
+================================================================================
+  PART E: FULL PHASE COMPLETION TRACKER
+================================================================================
+
+  Phase  What                                     Status      Priority
+  ──────────────────────────────────────────────────────────────────────────────
+  A.1    FastAPI backend endpoints (basic)        ✅ DONE     —
+  A.2    LangGraph MCQ pipeline (3-node)          ✅ DONE     —
+  A.3    PostgreSQL + PGVector DB schema          ✅ DONE     —
+  A.4    APScheduler auto-scraper (7 sources)     ✅ DONE     —
+  A.5    Frontend full redesign (3 sections)      ✅ DONE     —
+  ──────────────────────────────────────────────────────────────────────────────
+  1      Connect real backend data to frontend    ⬜ TODO     🔴 HIGH      A 
+  2      Batch question generation API            ⬜ TODO     🔴 HIGH      S 
+  3      Real AI-generated analytics insights     ⬜ TODO     🟡 MEDIUM    A 
+  4      Subject auto-tagging in DB               ⬜ TODO     🟡 MEDIUM    S
+  5      Local LLM via Ollama (GPU)               ⬜ TODO     🟡 MEDIUM    S
+  6      Real JWT authentication                  ⬜ TODO     🔴 HIGH      A 
+  7      Pre-generate full mock test library      ⬜ TODO     🔴 HIGH      S 
+  8      Polish, testing & optimization           ⬜ TODO     🟡 MEDIUM    A 
+  9      Production deployment                    ⬜ TODO     🟢 FINAL     A 
+  ──────────────────────────────────────────────────────────────────────────────
+
+  Realistic timeline:
+    Week 1 (Days 1-4):  Phases 1, 2, 6, 7   → Full working local app with real data
+    Week 1 (Days 5-7):  Phases 3, 4, 8       → Analytics real, polished, tested
+    Week 2 (Days 1-3):  Phase 5             → Ollama local model (GPU)
+    Week 2 (Days 4-7):  Phase 9             → Live deployment on production URL
+
+================================================================================
+  END OF PIPELINE
+  Project: UPSC AI Test Series
+  Architecture: FastAPI + LangGraph + PostgreSQL/PGVector + Vanilla JS Frontend
+================================================================================
+
+
