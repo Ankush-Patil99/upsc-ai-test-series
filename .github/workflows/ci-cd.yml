@@ -44,7 +44,24 @@ jobs:
 
       - name: Enable pgvector extension
         run: |
-          PGPASSWORD=upsc_password psql -h localhost -U upsc_user -d upsc_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          python -c "
+          import time, psycopg2
+          for i in range(15):
+              try:
+                  conn = psycopg2.connect('postgresql://upsc_user:upsc_password@localhost:5432/upsc_db')
+                  cur = conn.cursor()
+                  cur.execute('CREATE EXTENSION IF NOT EXISTS vector;')
+                  conn.commit()
+                  conn.close()
+                  print('pgvector extension enabled successfully!')
+                  break
+              except Exception as e:
+                  print(f'Waiting for database... ({e})')
+                  time.sleep(2)
+          else:
+              print('Database connection timed out.')
+              exit(1)
+          "
 
       - name: Run PyTest suite
         env:
