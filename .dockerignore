@@ -1,0 +1,26 @@
+.git
+.gitignore
+.env
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+dist
+build
+.vscode
+.idea
+Desktop
+archive
+notebooks
+docs
+Generated
+FULL_PIPELINE
+FULL_PIPELINE_FOR_GITHUB
+Scraper_Git_Push
+UPSC_TestSeires_LangGraph_based_Pipeline-main
+UPSC_TestSeires_LangGraph_based_Pipeline-main.zip
+prototype folder
+vector_db
+*.zip
+*.tar.gz

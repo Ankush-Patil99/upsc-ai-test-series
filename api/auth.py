@@ -16,7 +16,6 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from api.models import SessionLocal, User
@@ -30,8 +29,7 @@ def _secret_key() -> str:
 ALGORITHM            = "HS256"
 TOKEN_EXPIRE_MINUTES = 60 * 24 * 7   # 7 days
 
-# ── Password Hashing ─────────────────────────────────────────────────────────
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+import bcrypt
 
 # ── OAuth2 scheme — reads "Authorization: Bearer <token>" from requests ──────
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -49,12 +47,18 @@ def get_db():
 # ── Password helpers ──────────────────────────────────────────────────────────
 def hash_password(plain: str) -> str:
     """Hash a plain-text password using bcrypt."""
-    return pwd_context.hash(plain)
+    salt = bcrypt.gensalt()
+    # truncate to 72 bytes to match bcrypt max length
+    hashed = bcrypt.hashpw(plain[:72].encode('utf-8'), salt)
+    return hashed.decode('utf-8')
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Return True if plain password matches stored bcrypt hash."""
-    return pwd_context.verify(plain, hashed)
+    try:
+        return bcrypt.checkpw(plain[:72].encode('utf-8'), hashed.encode('utf-8'))
+    except Exception:
+        return False
 
 
 # ── JWT helpers ───────────────────────────────────────────────────────────────

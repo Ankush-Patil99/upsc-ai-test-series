@@ -2,7 +2,7 @@ from typing import TypedDict
 import os
 import yaml
 from langgraph.graph import StateGraph, END
-from langchain_google_genai import ChatGoogleGenerativeAI
+
 from langchain_core.prompts import PromptTemplate
 
 # Load configuration
@@ -10,45 +10,14 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "configs", "se
 import yaml
 with open(CONFIG_PATH, "r") as f:
     config = yaml.safe_load(f)
-from dotenv import load_dotenv
-load_dotenv()
+from langchain_ollama import ChatOllama
 
-# Initialize Google Gemini LLM
+# Initialize Local Ollama LLM
 try:
-    gemini_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash-lite", temperature=0.3)
+    local_llm = ChatOllama(model=config["models"]["mcq_llm_repo"], temperature=0.3)
 except Exception as e:
-    gemini_llm = None 
-    
-# Initialize Groq LLM Array
-try:
-    from langchain_groq import ChatGroq
-    groq_llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.3)
-except Exception as e:
-    groq_llm = None
-
-# Initialize Together AI LLM
-try:
-    from langchain_together import ChatTogether
-    together_llm = ChatTogether(model="meta-llama/Llama-3-8b-chat-hf", temperature=0.3)
-except Exception as e:
-    together_llm = None
-
-# Initialize OpenRouter LLM
-try:
-    from langchain_openai import ChatOpenAI
-    openrouter_llm = ChatOpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ.get("OPENROUTER_API_KEY"), model="meta-llama/llama-3-8b-instruct:free", temperature=0.3)
-except Exception as e:
-    openrouter_llm = None
-
-# Initialize Cohere LLM
-try:
-    from langchain_cohere import ChatCohere
-    cohere_llm = ChatCohere(model="command-r", temperature=0.3)
-except Exception as e:
-    cohere_llm = None
-
-# Boot Cascade Engine Array
-llm_cascade = [together_llm, openrouter_llm, groq_llm, cohere_llm, gemini_llm]
+    print(f"Failed to load local Ollama model: {e}")
+    local_llm = None
 
 # 1. State Schema definition
 class MCQGraphState(TypedDict):
@@ -127,7 +96,7 @@ def draft_mcq_node(state: MCQGraphState) -> dict:
     }
     draft_mains_fact = f"Mains Descriptive Fact for {topic}."
 
-    if gemini_llm:
+    if local_llm:
         from langchain_core.output_parsers import JsonOutputParser
         prompt = PromptTemplate.from_template(
             "You are an expert UPSC Civil Services Prelims examiner. \n"
@@ -144,29 +113,9 @@ def draft_mcq_node(state: MCQGraphState) -> dict:
             "Return ONLY a perfectly formatted JSON object containing exactly the keys: 'question', 'options' (array), 'correct', 'explanation', 'mains_facts'."
         )
         try:
-            import time
-            raw_ai = None
+            chain = prompt | local_llm
+            raw_ai = chain.invoke({"topic": topic, "context": context, "difficulty": state.get("difficulty", "medium"), "critique": critique})
             
-            # The Invincible Core Router
-            for attempt in range(4):
-                for llm_engine in llm_cascade:
-                    if llm_engine is None: continue
-                    try:
-                        chain = prompt | llm_engine
-                        raw_ai = chain.invoke({"topic": topic, "context": context, "difficulty": state.get("difficulty", "medium"), "critique": critique})
-                        break # Successfully drafted! Break inner engine loop
-                    except Exception as api_err:
-                        print(f"   [!] Engine {llm_engine.__class__.__name__} exhausted or failed... Handing over to next provider...")
-                
-                if raw_ai is not None:
-                    break # Break outer sleep loop successfully!
-                    
-                print(f"   [CRITICAL] All Artificial Intelligence Providers hit physical Spam blocks. Resting the entire system 30 seconds... (Attempt {attempt+1}/4)")
-                time.sleep(30)
-                        
-            if raw_ai is None:
-                raise Exception("Max Fatal Retries Exceeded on Multi-Core Cascade Engine.")
-                
             ai_text = raw_ai.content if hasattr(raw_ai, 'content') else str(raw_ai)
             
             # Smart Regex Extraction of the JSON block bypassing Markdown wrappers!
@@ -183,10 +132,11 @@ def draft_mcq_node(state: MCQGraphState) -> dict:
                 }
                 draft_mains_fact = raw_output.get("mains_facts", draft_mains_fact)
             else:
-                print(f"Router Warning: No JSON format found in text: {ai_text}")
+                print(f"Generation Warning: No JSON format found in text: {ai_text}")
                 
         except Exception as e:
-            print(f"Core Router Structural Error: {e}")
+            print(f"Local LLM Error: {e}")
+
             
     return {
         "draft_mcq": draft_mcq, 
@@ -195,17 +145,36 @@ def draft_mcq_node(state: MCQGraphState) -> dict:
     }
 
 def critique_node(state: MCQGraphState) -> dict:
-    """Evaluates draft against context. Flags hallucination using DeepSeek LLM Judge logic."""
-    iterations = state.get('iterations', 1)
+    """Evaluates draft against context. Flags hallucination using local LLM Judge logic."""
+    if local_llm is None:
+        return {"hallucination_detected": False, "critique": "PASS (No LLM)"}
+
+    context = state.get("context", "")
+    draft = state.get("draft_mcq", {})
     
-    if iterations < 2:
-        hallucinated = True
-        critique = "Option 3 introduces facts not found in context. Please revise."
-    else:
-        hallucinated = False
-        critique = "PASS. All facts and options directly grounded in retrieved context."
+    critique_prompt = PromptTemplate.from_template(
+        "You are an expert UPSC examiner and fact checker. "
+        "Review this drafted MCQ against the source context.\n"
+        "Context: {context}\n"
+        "Draft MCQ: {draft}\n"
+        "Are all facts and options perfectly grounded in the context? "
+        "If there are hallucinations or logical errors, output exactly 'HALLUCINATED' on the first line and explain what to fix below. "
+        "If it is perfect, output exactly 'PASS' on the first line."
+    )
+    
+    try:
+        response = local_llm.invoke(critique_prompt.format(context=context, draft=draft))
+        ai_critique = response.content.strip()
         
-    return {"hallucination_detected": hallucinated, "critique": critique}
+        if ai_critique.startswith("PASS"):
+            hallucinated = False
+        else:
+            hallucinated = True
+            
+        return {"hallucination_detected": hallucinated, "critique": ai_critique}
+    except Exception as e:
+        print(f"Critique Error: {e}")
+        return {"hallucination_detected": False, "critique": "PASS (Failed to run critique)"}
 
 # 3. Routing Logic
 def routing_logic(state: MCQGraphState) -> str:
@@ -218,11 +187,11 @@ def build_mcq_graph():
     graph = StateGraph(MCQGraphState)
     graph.add_node("retrieve", retrieve_context_node)
     graph.add_node("draft", draft_mcq_node)
-    graph.add_node("critique", critique_node)
+    graph.add_node("critique_node_id", critique_node)
     graph.set_entry_point("retrieve")
     graph.add_edge("retrieve", "draft")
-    graph.add_edge("draft", "critique")
-    graph.add_conditional_edges("critique", routing_logic, {"draft": "draft", "end": END})
+    graph.add_edge("draft", "critique_node_id")
+    graph.add_conditional_edges("critique_node_id", routing_logic, {"draft": "draft", "end": END})
     return graph.compile()
 
 class LangGraphMCQGenerator:

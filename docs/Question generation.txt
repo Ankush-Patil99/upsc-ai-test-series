@@ -1,0 +1,61 @@
+# UPSC AI - Question Generation Module Roadmap
+
+This document outlines the comprehensive roadmap and technical requirements for completing the Question Generator section. It serves as a master checklist for moving this module to a production-ready state.
+
+## 1. Focus Session Integration (Analytics ↔ Generator)
+**Goal:** Seamlessly link the Analytics "Focus Session" feature with the Generator to automate remedial practice.
+*   **Frontend UI:** Hook up the "Focus Session" button in the Analytics dashboard to transition to the Generator tab.
+*   **Backend Logic:** Create a mechanism (e.g., `/api/analytics/focus-topics`) that analyzes the user's `question_results` table, identifies the top 3 weak micro-topics, and sends them as the target `topic` for generation.
+*   **User Flow:** User clicks "Focus Session" ➔ System fetches weak topics ➔ Generator automatically spins up a 15-question targeted revision test.
+
+## 2. PDF Upload & Custom Quiz Generation
+**Goal:** Allow users to upload their own study materials (e.g., coaching notes, Yojana magazines) and generate questions exclusively from that text.
+*   **Frontend UI:** 
+    *   Add a drag-and-drop "Upload PDF" zone alongside the topic search bar.
+    *   Show upload and parsing progress indicators.
+*   **Backend Parsing:** 
+    *   Create a `POST /api/generate/from-pdf` endpoint.
+    *   Extract text using a library like `PyMuPDF` or `PyPDF2`.
+    *   Chunk the extracted text and embed it into a temporary/session-specific namespace in PGVector.
+*   **LLM Pipeline Adjustments:** 
+    *   Modify the `retrieve_context_node` in LangGraph. If a PDF is uploaded, bypass the global `upsc_collection` and retrieve context *only* from the uploaded document's embeddings.
+    *   Ensure the prompt forces the LLM to strictly adhere to the PDF context to prevent outside hallucinations.
+
+## 3. Async Batch Generation API (Speed & Scalability)
+**Goal:** Fix the current sequential fetching bottleneck (which takes too long for large batches of questions) by handling generation asynchronously.
+*   **Backend Changes:**
+    *   Create a `POST /api/generate-batch` endpoint that accepts the topic and question count.
+    *   Use FastAPI `BackgroundTasks` (or Celery/Redis) to queue the generation of all questions in parallel.
+    *   Return a `job_id` immediately.
+    *   Create a `GET /api/jobs/{job_id}` endpoint to allow the frontend to poll for progress (e.g., "4/10 questions generated").
+*   **Frontend Changes:**
+    *   Update `generateMCQs()` to trigger the batch endpoint.
+    *   Implement a polling mechanism or WebSockets to stream questions into the UI one by one as they finish, updating the progress bar with *actual* data instead of fake animations.
+
+## 4. Upgrade the AI Critique Node (Quality Assurance)
+**Goal:** Replace the current hardcoded/mocked hallucination check with a real AI judge to ensure UPSC-level quality.
+*   **Backend Changes:**
+    *   Integrate a fast, local LLM (like `llama-3.1-8b` or `qwen2.5` via Ollama) into the `critique_node` in `generator.py`.
+    *   Prompt the judge to verify:
+        1. Are there exactly 4 distinct options?
+        2. Is the correct answer objectively true based on the provided context?
+        3. Are there any hallucinations?
+    *   If the judge flags an issue, feed the critique back to the `draft_mcq_node` for a rewrite (capping at 3 attempts to prevent infinite loops).
+
+## 5. Save Generated Tests to Analytics (Persistence)
+**Goal:** Ensure generated questions are saved permanently so they contribute to the user's progress metrics.
+*   **Backend Changes:**
+    *   When the user submits their answers, save the newly generated questions to the `test_questions` table (tagged with `source='generated'`).
+    *   Save their attempt in `test_sessions` and `question_results`.
+*   **Frontend Changes:**
+    *   Connect the "Submit All" button in the Generator UI to the `/api/tests/submit` endpoint.
+    *   Ensure these generated test sessions appear in the "Attempt History" table in the Analytics tab.
+
+## 6. Error Handling, Fallbacks & Rate Limiting
+**Goal:** Make the module resilient and production-ready by removing dummy data and protecting server resources.
+*   **Frontend Cleanup:** 
+    *   Remove the `generateSampleQuestions()` hardcoded fallback from `app.js`.
+    *   Display graceful error messages (e.g., "Generation failed due to high load. Please try again.") if the API fails.
+*   **Backend Security:**
+    *   Implement strict timeouts on the LLM cascade so requests don't hang indefinitely.
+    *   Add API rate limiting (e.g., maximum of 50 generated questions per user per day) to manage GPU/API costs.

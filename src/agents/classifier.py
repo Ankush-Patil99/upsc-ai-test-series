@@ -1,6 +1,6 @@
 import os
 import yaml
-from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import PromptTemplate
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "configs", "settings.yaml")
@@ -10,12 +10,9 @@ with open(CONFIG_PATH, "r") as f:
 class ClassifierAgent:
     def __init__(self):
         try:
-            _raw_qwen = HuggingFaceEndpoint(
-                repo_id=config["models"]["classifier_llm_repo"],
-                temperature=0.0
-            )
-            self.qwen_llm = ChatHuggingFace(llm=_raw_qwen)
-        except Exception:
+            self.qwen_llm = ChatOllama(model=config["models"]["classifier_llm_repo"], temperature=0.0)
+        except Exception as e:
+            print(f"Failed to load local Ollama model: {e}")
             self.qwen_llm = None
             
     def classify_content(self, text: str) -> dict:

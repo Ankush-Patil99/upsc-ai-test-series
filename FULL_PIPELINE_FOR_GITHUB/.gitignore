@@ -1,0 +1,22 @@
+# .gitignore for UPSC AI Engine V2.0
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.log
+dist/
+build/
+.eggs/
+.pytest_cache/
+models_cache/
+chroma_db/
+checkpoints/
+output/
+static_kb/topic_coverage.json
+upsc_pipeline.log
+logs/vllm_heavy.log
+logs/vllm_light.log
+logs/vllm_heavy.pid
+logs/vllm_light.pid

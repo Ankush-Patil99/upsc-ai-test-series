@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: upsc_api_prod
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://upsc_user:upsc_password@db:5432/upsc_db
+      # For the deployed AWS demo, we fall back to Groq/TogetherAI to save EC2 memory costs
+      - USE_LOCAL_LLM=false 
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - LANGCHAIN_TRACING_V2=true
+      - LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - LANGCHAIN_PROJECT=upsc-test-series-prod
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+    networks:
+      - upsc_network
+
+  db:
+    image: ankane/pgvector:latest
+    container_name: upsc_db_prod
+    environment:
+      POSTGRES_USER: upsc_user
+      POSTGRES_PASSWORD: upsc_password
+      POSTGRES_DB: upsc_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - upsc_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U upsc_user -d upsc_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - upsc_network
+
+networks:
+  upsc_network:
+    driver: bridge
+
+volumes:
+  upsc_prod_data:

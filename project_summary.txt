@@ -1,0 +1,64 @@
+================================================================================
+UPSC AI ENGINE — PROJECT ARCHITECTURE & METHODS SUMMARY
+================================================================================
+This document provides a factual, deep-scanned summary of the technologies, 
+models, and methods implemented in the UPSC AI Test Series project. It is 
+specifically designed to be used as a reference for resumes, GitHub READMEs, 
+and technical portfolios.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. AI MODELS & EMBEDDINGS USED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Local/Heavy Reasoning Models: 
+  - Qwen2.5-72B-Instruct-AWQ (Premium heavy model for complex reasoning/classification)
+  - Mistral-7B-Instruct-v0.3 (Lightweight model for drafting/basic NLP tasks)
+• Cloud LLM Cascade (Automatic failover system):
+  - Llama-3-8b-chat-hf (Together AI - Primary)
+  - Llama-3-8b-instruct (OpenRouter - Fallback)
+  - Llama-3.1-8b-instant (Groq - Fallback)
+  - Cohere command-r (Fallback)
+  - Google Gemini 2.0-flash-lite (Emergency Cloud Fallback)
+• Embedding Models (Local Vectorization):
+  - BAAI/bge-large-en-v1.5 and BAAI/bge-small-en (Semantic text embedding)
+  - sentence-transformers (all-MiniLM-L6-v2 fallback)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. TECHNOLOGY STACK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Backend & API: FastAPI, Uvicorn, Python, Pydantic, SQLAlchemy.
+• AI Orchestration: LangGraph, LangChain, HuggingFace Hub.
+• Database & Vector Store: PostgreSQL with pgvector (Primary RAG store), ChromaDB.
+• Data Extraction: BeautifulSoup4, lxml, feedparser, PyMuPDF / pypdf.
+• Task Scheduling: APScheduler (Daemon for cron jobs).
+• Frontend: Vanilla JavaScript, HTML5, CSS3.
+• Security & Auth: Google Identity Services (GSI) OAuth, JWT (python-jose), bcrypt password hashing.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. METHODS IMPLEMENTED & THINGS ACCOMPLISHED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Autonomous Multi-Source Data Ingestion:
+  - Engineered an automated scraper daemon running via APScheduler to extract current affairs daily/monthly from 7 diverse sources (VisionIAS, The Hindu, Indian Express, PIB, etc.).
+  - Bypassed strict Cloudflare paywalls using targeted RSS feed parsing for newspaper editorials.
+  - Implemented semantic chunking and automated PDF parsing for processing massive reference materials like monthly magazines and NCERT textbooks.
+
+• Multi-Agent RAG Pipeline (LangGraph):
+  - Designed a 6-node state machine workflow (Controller, Researcher, Drafter, Engineer, Formatter, Orchestrator) using LangGraph.
+  - Implemented semantic search in PGVector to retrieve highly relevant Current Affairs chunks.
+  - Built an AI-driven critique and hallucination guard node that validates MCQ accuracy, JSON compliance, and option distinctness before finalizing output.
+
+• LLM Cascade & High Availability:
+  - Developed an intelligent LLM Cascade system that automatically fails over across 5 different API providers to completely eliminate rate-limit bottlenecks and ensure 100% uptime during batch question generation.
+
+• Production-Grade Security & Backend:
+  - Built robust FastAPI endpoints with a custom sliding-window rate limiter mapped by IP address to prevent brute-force attacks.
+  - Implemented secure JWT authentication with server-side token blacklisting and integrated Google OAuth login.
+  - Hardened endpoints with HTTP security headers (X-Frame-Options, XSS-Protection, strict Referrer-Policy).
+
+• Interactive CBT (Computer Based Test) Frontend:
+  - Developed a full frontend mock test simulator replicating the exact UPSC exam interface (Timers, Question Palettes).
+  - Engineered an on-device post-exam Analytics Engine calculating subject-wise accuracy (Polity, Economy, etc.).
+  - Integrated AI-powered diagnostic insights that analyze wrong answers and suggest highly specific micro-topics for improvement.
+
+================================================================================
+END OF SUMMARY
+================================================================================

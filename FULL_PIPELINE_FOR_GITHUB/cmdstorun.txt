@@ -1,0 +1,9 @@
+./start_vllm.sh
+python data_ingestion.py --all
+python ca_scraper.py --run-now
+python plan_batch.py --count 100
+python generate_questions_final.py --batch pipeline_data/topic_queue.json --output pipeline_data/output/test_series_1.json
+
+#for complete pipeline
+
+python run_upsc.py --setup --scrape --total-questions 100

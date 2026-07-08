@@ -4,6 +4,6 @@ db:
 
 # Model Settings
 models:
-  mcq_llm_repo: "deepseek-ai/DeepSeek-V3"
-  classifier_llm_repo: "Qwen/Qwen2.5-14B-Instruct-1M"
-  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"  # Free HF embedding model
+  mcq_llm_repo: "llama3.1:8b" # Replaced DeepSeek with local Llama 3.1 8B via Ollama
+  classifier_llm_repo: "llama3.1:8b" # Replaced Qwen with local Llama 3.1 8B to save VRAM
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"  # Free HF embedding model (runs well locally)

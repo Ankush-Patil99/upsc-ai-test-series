@@ -1,0 +1,324 @@
+# UPSC AI Engine V2.1 — Complete Project Overview
+**Location:** `/home/scai/mtech/aib242291/UPSC_Test_Agent`
+**Date:** April 22, 2026 (Updated — CA Scraper Integration)
+
+## 1. Project Goal
+To automatically generate strictly verified, high-quality, zero-hallucination Multiple Choice Questions (MCQs) for UPSC Civil Services aspirants. The engine uses a robust 6-Node LangGraph architecture with specialized AI agents, multi-modal Retrieval Augmented Generation (RAG) using local ChromaDB, and strict QA gating.
+
+**Critical Design Guarantee:** For `current_affairs` type questions, the LLM is given ONLY the content retrieved from 7 scraped sources via ChromaDB. It cannot generate facts from pre-training weights — eliminating hallucination risk for recent/sensitive UPSC facts.
+
+---
+
+## 2. Pipeline Graph Flow
+
+```text
+    [ Batch Input Queue: topic_queue.json ]
+                   │
+                   ▼
+       ┌────────────────────────┐
+       │ NODE 1: Controller     │ (Mistral-7B)
+       │ Validate & Subtopic    │
+       └───────────┬────────────┘
+                   │ 
+                   ▼
+       ┌────────────────────────┐         ┌─────────────────────────────────────────┐
+       │ NODE 2: Researcher     │ ◄────── │ ChromaDB RAG                            │
+       │ 300-500w Factual Brief │ ◄────── │  ├─ source_type=CA      (7 scraped srcs) │
+       │                        │ ◄────── │  ├─ source_type=textbook (NCERT + Books) │
+       └───────────┬────────────┘         │  └─ Static KB (upsc_facts.json)          │
+                   │ (Qwen-72B)           └─────────────────────────────────────────┘
+                   ▼
+       ┌────────────────────────┐
+       │ NODE 3: Drafter        │ (Qwen-72B)
+       │ Stem + Ans + Explain   │ (Uses 5 UPSC Few-Shot Types)
+       └───────────┬────────────┘
+                   │
+                   ▼
+       ┌────────────────────────┐
+       │ NODE 4: Distractor Eng.│ (Mistral-7B)
+       │ 3 Plausible Wrong Opt. │
+       └───────────┬────────────┘
+                   │
+                   ▼
+       ┌────────────────────────┐
+       │ NODE 5: Formatter      │ (Mistral-7B)
+       │ Website JSON + Shuffle │
+       └───────────┬────────────┘
+                   │
+                   ▼
+       ┌────────────────────────┐         ┌──────────────────────────────┐
+       │ NODE 6: QA Orchestrator│ ◄────── │ Chroma Dedup (PYQs+Old MCQs) │
+       │ 8-Dimension QA Audit   │         └──────────────────────────────┘
+       └───────────┬────────────┘
+                   │ (Qwen-72B)
+                   ▼
+         [ PASS score >= 0.75  AND  Unique? ]
+           /                                \
+        YES                                 NO [Find Worst Dimension]
+         │                                   │
+         ▼                                   ▼
+ [Save into ChromaDB]          ┌───────────────────────────────────┐
+ [Log to SQLite qa_logs]       │ Retry Routing Map (Max 3 retries) │
+ [Return to JSON Out]          │                                   │
+                               │ Uniqueness      ──► Node 1        │
+                               │ Factual         ──► Node 2        │
+                               │ Steming/UPSC    ──► Node 3        │
+                               │ Distractor      ──► Node 4        │
+                               │ Format          ──► Node 5        │
+                               └─────────┬─────────────────────────┘
+                                         │
+                                [Fails 3 Times?] ──► [Log as FAILED]
+```
+
+---
+
+## 3. Architecture & The 6 Nodes
+The system uses **LangGraph** to pass a shared `QuestionState` across 6 specialized LLM nodes. State management includes `SqliteSaver` for crash recovery and checkpointing.
+
+1. **Node 1: Input Controller** (Mistral-7B)
+   - Validates user input (Paper, Topic, Difficulty).
+   - Expands broad topics into specific testable subtopics.
+   - Checks against the syllabus mapping and ensures coverage limits.
+
+2. **Node 2: Content Researcher** (Qwen-72B) — **CA-AWARE**
+   - For `current_affairs` type: retrieves top-7 CA chunks with `source_type=CA`
+     from ChromaDB (scraped real-world content). Uses a strict ANTI-HALLUCINATION
+     system prompt — LLM forbidden from using parametric knowledge beyond retrieved context.
+   - For other types: retrieves top-5 CA + top-3 textbook chunks normally.
+   - Looks up the Static Knowledge Base JSON for constitutional facts.
+   - Synthesizes a dense 300-500 word factual brief with strict source citations.
+
+3. **Node 3: Question Drafter** (Qwen-72B)
+   - Uses the research brief as its only source of truth.
+   - Drafts the Question Stem, Correct Answer, and Detailed Explanation.
+   - Given 5 different few-shot examples (Statement Based, Assertion-Reasoning, Match the Following, etc.) to mimic the tough UPSC phrasing.
+
+4. **Node 4: Distractor Engineer** (Mistral-7B)
+   - Generates exactly 3 highly plausible but wrong options (distractors).
+   - Employs UPSC trick patterns: partial truths, swapped entities, and reversed logic.
+
+5. **Node 5: Structure Formatter** (Mistral-7B)
+   - Condenses the full explanation into a 2-3 sentence version for the website.
+   - Randomly shuffles options into A, B, C, D labels.
+   - Computes Difficulty Score (0.0-1.0) and assigns an estimated solving time.
+   - Formats the exact JSON object schema needed for the production database.
+
+6. **Node 6: QA Orchestrator** (Qwen-72B)
+   - The Gatekeeper. It scores the output against an 8-dimension weighted rubric (Accuracy 25%, Clarity 20%, etc.).
+   - Checks ChromaDB `dedup_collection` for duplicates (Cosine Similarity > 0.85 = reject).
+   - **Conditional Routing:** If score < 0.75, it finds the worst-performing dimension and strictly routes back to the responsible node (max 3 retries).
+   - On approval, saves the question to ChromaDB and increments coverage tracking in local SQLite.
+
+---
+
+## 4. Current Affairs (CA) Sub-System
+
+### 4A. 7 Scraped Sources (ca_scraper.py)
+
+All 7 sources are scraped by APScheduler every 24 hours. Content is chunked (600 chars, 80 overlap), embedded via `BAAI/bge-large-en-v1.5`, and upserted into ChromaDB RAG with `source_type=CA`.
+
+| #  | Source                        | Method         | URL / Details                                          | GS Paper      |
+|----|-------------------------------|----------------|--------------------------------------------------------|---------------|
+| 1  | VisionIAS                     | PDF Download   | Monthly CA Magazine (most popular IAS prep source)     | GS1-GS4       |
+| 2  | InsightsIAS                   | PDF Download   | Monthly CA Compilation                                 | GS1-GS3       |
+| 3  | ForumIAS 9PM Brief            | HTML (BS4)     | Daily 9PM brief articles                               | GS1-GS3       |
+| 4  | The Hindu Editorials           | RSS Feed       | Top 3 latest editorials (bypasses paywall)             | GS2,GS3,GS4   |
+| 5  | Indian Express Explained       | RSS Feed       | Top 3 Explained articles (bypasses paywall)            | GS2,GS3       |
+| 6  | PIB Press Releases             | HTML (BS4)     | Official GoI press releases                            | GS2,GS3       |
+| 7  | Drishti IAS Environment        | HTML (BS4)     | Environment & Biodiversity articles                    | GS3           |
+
+**Deduplication:** Each chunk is fingerprinted via SHA-256. ChromaDB's `upsert` by stable
+ID makes re-runs fully idempotent — no duplicate content is ever stored.
+
+### 4B. CA Scraper Commands
+```bash
+# Run all 7 sources now (one-shot):
+python ca_scraper.py --run-now
+
+# Run only a specific source:
+python ca_scraper.py --run-now --source thehindu
+
+# Start the 24h APScheduler daemon:
+python ca_scraper.py --daemon
+
+# Check CA chunk count in ChromaDB:
+python ca_scraper.py --status
+```
+
+---
+
+## 5. Data Ingestion & Storage
+
+All data infrastructure is serverless and cluster-friendly to support HPC environments.
+
+### A. RAG Database (`ChromaDB - upsc_knowledge`)
+- **Textbook chunks** (`source_type=textbook`): Books, NCERTs from `data/books/`
+- **CA chunks** (`source_type=CA`): Live-scraped content from 7 sources via `ca_scraper.py`
+- **Embedding:** `BAAI/bge-large-en-v1.5` (local, offline)
+
+### B. Duplicate Detection Database (`ChromaDB - upsc_questions`)
+- **What it holds:** 20 Years of official UPSC PYQs + 80 Mock Test papers + all previously approved questions.
+- **Embedding:** `BAAI/bge-small-en`
+
+### C. Logging & Tracking (`SQLite - upscdb.sqlite3`)
+- **`qa_logs`**: Logs QA dimensions, success margins, and pipeline performance.
+- **`topic_coverage`**: Ensures balanced test bank coverage.
+
+### D. Static Knowledge Base (`static_kb/`)
+- **`syllabus_map.json`**: Built from PDFs in `data/syllabus/`.
+- **`upsc_facts.json`**: Key constitutional articles, dates, and bedrock rules.
+
+---
+
+## 6. Model Infrastructure
+
+The pipeline runs on a multi-GPU HPC environment (**2x 80GB Nvidia A100 GPUs**) using `vLLM`.
+
+**Heavy Endpoint (Port 8001 | GPU 0+1 via TP=2):**
+- **Model:** `Qwen/Qwen2.5-72B-Instruct-AWQ` (~40GB VRAM total)
+- **Role:** Node 2 (Researching), Node 3 (Drafting), Node 6 (Scoring).
+
+**Light Endpoint (Port 8002 | GPU 1, 85% utilization):**
+- **Model:** `mistralai/Mistral-7B-Instruct-v0.3` (~15GB VRAM)
+- **Role:** Node 1 (Routing), Node 4 (Distractors), Node 5 (Formatting).
+
+---
+
+## 7. Complete Folder Structure
+
+```text
+UPSC_Test_Agent/
+├── generate_questions_final.py  # ★ PRIMARY ENTRY POINT (V2.1.0-CA) — use this always
+├── ca_scraper.py                # Current Affairs scraper — 7 sources → ChromaDB
+├── generate_questions.py        # Legacy generator (kept for compatibility)
+├── data_ingestion.py            # Local PDF parsing to ChromaDB (textbooks, PYQs)
+├── setup_db.py                  # Sets up local serverless SQLite schema
+├── start_vllm.sh                # Spawns both Qwen (TP=2) and Mistral endpoints
+├── run_generate.sh              # Wrapper script for quick execution
+├── run_slurm.sh                 # HPC specific launch script via SLURM
+├── requirements.txt             # Pip packages (includes scraper deps)
+├── .env / .env.example          # All config including CA scraper settings
+├── topic_queue.json             # Sample queue file for batch MCQ processing
+│
+├── data/                        # Raw source documents
+│   ├── books/                   # NCERTs and standard books (Chroma RAG)
+│   ├── pyqs/                    # Official previous years & test series (Chroma Dedup)
+│   └── syllabus/                # GS1, GS2, GS3 PDFs (KB map)
+│
+├── src/                         # Core source code
+│   ├── graph.py                 # LangGraph pipeline wiring & checkpoint routing
+│   ├── state.py                 # QuestionState TypedDict definition
+│   ├── config.py                # Environment configs & thresholds
+│   ├── utils.py                 # Reusable logic (options shuffling, etc.)
+│   ├── llm_client.py            # vLLM API wrappers with exponential backoff
+│   ├── chroma_client.py         # ChromaDB dedup collection client
+│   ├── pgvector_client.py       # ChromaDB RAG retrieval client (CA + Textbook)
+│   ├── kb_loader.py             # Interfaces for the static JSON KB
+│   ├── topic_bank.py            # Hardcoded UPSC topic arrays for sampling
+│   └── nodes/
+│       ├── node_1_controller.py
+│       ├── node_2_researcher.py  # ← updated: CA-aware retrieval + anti-hallucination prompt
+│       ├── node_3_drafter.py
+│       ├── node_4_engineer.py
+│       ├── node_5_formatter.py
+│       └── node_6_orchestrator.py
+│
+├── static_kb/                   # Curated JSON maps
+│   ├── upsc_facts.json
+│   └── syllabus_map.json
+│
+├── logs/                        # Uvicorn, LangGraph, CA scraper, and Error logs
+│   └── ca_scraper.log           # CA scraper run history
+├── output/                      # Finished JSON batches
+├── checkpoints/                 # SqliteSaver recovery db memory store
+└── chroma_db/                   # Local persistent RAG & dedup vector store
+```
+
+---
+
+## 8. How to Deploy & Run (HPC Friendly)
+
+**Step 1: Install & Configure**
+```bash
+conda activate upsctest
+pip install -r requirements.txt
+python setup_db.py            # Bootstraps local SQLite tracking
+cp .env.example .env          # Configure paths and model settings
+```
+
+**Step 2: Ingest Textbook & PYQ Data**
+```bash
+python generate_questions_final.py --ingest-only
+```
+
+**Step 3: Scrape Current Affairs (REQUIRED for CA questions)**
+```bash
+# One-shot scrape of all 7 sources:
+python ca_scraper.py --run-now
+
+# OR: Scrape + generate in one command:
+python generate_questions_final.py --scrape-now --count 10
+
+# To auto-scrape every 24h (run in a separate terminal or as a background job):
+nohup python ca_scraper.py --daemon > logs/ca_daemon.log 2>&1 &
+```
+
+**Step 4: Boot Models**
+```bash
+bash start_vllm.sh
+# Check logs/vllm_heavy.log to ensure port 8001/8002 bind successfully
+```
+
+**Step 5: Execute Engine (using final generator)**
+```bash
+# Check all data status:
+python generate_questions_final.py --status
+
+# Generate 10 questions from topic bank:
+python generate_questions_final.py --count 10
+
+# Generate 5 CA-grounded current affairs questions:
+python generate_questions_final.py --count 5 --ca-only
+
+# Generate a specific current affairs question:
+python generate_questions_final.py \
+    --topic "India Space Policy 2023" \
+    --subtopic "IN-SPACe and private sector reforms" \
+    --paper GS3 --difficulty medium --type current_affairs
+
+# Generate from a custom batch (topic_queue.json format):
+python generate_questions_final.py --batch topic_queue.json --count 20 --workers 4
+
+# Scrape fresh CA + generate CA questions in one shot:
+python generate_questions_final.py --scrape-now --ca-only --count 10
+
+# Test run via SLURM wrapper (optional):
+sbatch run_slurm.sh
+```
+
+---
+
+## 9. Zero-Hallucination Architecture for Current Affairs
+
+The anti-hallucination guarantee works in three layers:
+
+```
+Layer 1: Source Control
+  ca_scraper.py fetches ONLY verified sources (VisionIAS, PIB, The Hindu, etc.)
+  → Content is stored with full source metadata in ChromaDB
+
+Layer 2: Retrieval Grounding
+  node_2_researcher.py retrieves the top-7 semantically closest CA chunks
+  → The LLM prompt contains ONLY this text; no external data is passed
+
+Layer 3: Strict LLM Prompting
+  RESEARCHER_SYSTEM_PROMPT_CA instructs Qwen-72B:
+  "USE ONLY the retrieved CA context provided below.
+   Do NOT use any knowledge from your pre-training weights."
+  → Every fact must be cited with [CA:N] or it's rejected
+```
+
+This three-layer design ensures that even if a model "knows" a fact from pre-training,
+it will only output it if that fact also appears in the retrieved CA context — making
+the output verifiable and traceable back to a specific scraped source document.
+

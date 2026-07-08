@@ -1,6 +1,47 @@
+# Environment Variables
 .env
+FULL_PIPELINE/.env
+
+# Large Data & Vector DBs
 data/
 vector_db/
+FULL_PIPELINE/data/
+FULL_PIPELINE/pipeline_data/
+FULL_PIPELINE/chroma_db/
+FULL_PIPELINE/chroma_db_backup/
+FULL_PIPELINE/vision_browser_data/
+FULL_PIPELINE/extra_files/
+FULL_PIPELINE/static_kb/
+FULL_PIPELINE/checkpoints/
+
+# Logs & Outputs
+logs/
+FULL_PIPELINE/logs/
+*.log
+FULL_PIPELINE/output/
+
+# Python Caches
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Experimental & Redundant Folders
+archive/
+prototype folder/
+Generated/
+Scraper_Git_Push/
+UPSC_TestSeires_LangGraph_based_Pipeline-main/
+
+# Secrets
+FULL_PIPELINE/vision_session.json
+
+# Misc
 *.zip
+
+# Ignore Desktop reference directory
+Desktop/
+
+# Ignore heavy local pipeline data and databases
+FULL_PIPELINE/
+

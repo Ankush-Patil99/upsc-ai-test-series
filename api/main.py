@@ -13,6 +13,15 @@ from dotenv import load_dotenv
 # Load .env variables FIRST — before any module reads os.environ
 load_dotenv()
 
+# ── LangSmith LLMOps Tracing ─────────────────────────────────────────────────
+# When LANGCHAIN_API_KEY is set, all LangGraph runs are automatically traced
+# to the LangSmith dashboard for monitoring latency, tokens, and hallucinations.
+if os.getenv("LANGCHAIN_API_KEY"):
+    os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
+    os.environ.setdefault("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
+    os.environ.setdefault("LANGCHAIN_PROJECT", "upsc-test-series")
+    logging.getLogger("upsc_auth").info("[LangSmith] Tracing ENABLED — all LangGraph runs will be logged.")
+
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
 from src.mcq_generation.generator import LangGraphMCQGenerator
@@ -467,7 +476,9 @@ def fetch_mock_test(test_id: int, db: Session = Depends(get_db)):
             "options": ops,
             "correct_option": q.correct_option,
             "rationale": q.rationale,
-            "mains_hint": q.mains_hint
+            "mains_hint": q.mains_hint,
+            "subject": q.subject,
+            "difficulty": q.difficulty
         })
         
     return {"status": "success", "topic": test.topic, "count": test.count, "questions": questions_list}
@@ -539,3 +550,50 @@ def serve_frontend():
 @app.get("/ui")
 def serve_frontend_alt():
     return FileResponse("frontend/index.html")
+
+class DiagnosisRequest(BaseModel):
+    subject: str
+    accuracy: float
+    wrong_questions: list[str]
+
+@app.post("/api/analytics/diagnosis", tags=["Analytics"])
+def get_diagnosis(payload: DiagnosisRequest):
+    try:
+        from src.mcq_generation.generator import llm_cascade
+        from langchain_core.prompts import PromptTemplate
+        
+        prompt = PromptTemplate.from_template(
+            "You are an expert UPSC Civil Services mentor analyzing performance in {subject} ({accuracy}% accuracy).\n"
+            "The user answered these questions wrong recently:\n{wrong_questions}\n\n"
+            "Based ONLY on the themes of these specific wrong questions, list 2-3 highly specific micro-topics to improve.\n"
+            "CRITICAL OUTPUT FORMAT RULES - follow exactly:\n"
+            "1. Start with exactly: 'You can improve the following:'\n"
+            "2. Each bullet must contain ONLY the micro-topic name. Nothing else. No colon, no description, no 'fundamental concepts', no 'related topics'.\n"
+            "3. Each bullet on its own line starting with '- '\n"
+            "4. Micro-topics must be very specific (e.g. 'WTO Dispute Settlement Body', 'Article 356 - President Rule', 'Biodiversity Hotspots in India').\n"
+            "5. DO NOT use markdown bolding (**). DO NOT add any prose after the topic name.\n"
+            "Example correct output:\n"
+            "You can improve the following:\n"
+            "- WTO Dispute Settlement Body\n"
+            "- Article 356 President Rule provisions\n"
+            "- Biodiversity Hotspots in India"
+        )
+        
+        wq_text = chr(10).join(f"- {q}" for q in payload.wrong_questions) if payload.wrong_questions else "No specific questions provided, just give 2 core subtopics for this subject."
+        
+        raw_ai = None
+        for llm in llm_cascade:
+            if llm is None: continue
+            try:
+                chain = prompt | llm
+                raw_ai = chain.invoke({"subject": payload.subject, "accuracy": payload.accuracy, "wrong_questions": wq_text})
+                break
+            except Exception:
+                continue
+                
+        if raw_ai is not None:
+            text = raw_ai.content if hasattr(raw_ai, 'content') else str(raw_ai)
+            return {"status": "success", "diagnosis": text}
+        return {"status": "error", "diagnosis": "Could not generate diagnosis. Please focus on standard NCERTs for now."}
+    except Exception as e:
+        return {"status": "error", "diagnosis": str(e)}

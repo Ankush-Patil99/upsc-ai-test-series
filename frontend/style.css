@@ -238,7 +238,13 @@ input, select, textarea { font-family: inherit; }
 .sidebar.collapsed .nav-label,
 .sidebar.collapsed .sidebar-brand,
 .sidebar.collapsed .nav-section-label,
-.sidebar.collapsed .user-info { display: none; }
+.sidebar.collapsed .user-info,
+.sidebar.collapsed .badge-shelf-label,
+.sidebar.collapsed .badge-shelf-locked,
+.sidebar.collapsed #badge-shelf span[style*="font-size:0.75rem"] { display: none; }
+.sidebar.collapsed .badge-shelf-wrapper { padding: 6px 4px; overflow: hidden; }
+.sidebar.collapsed .badge-shelf { justify-content: center; gap: 2px; }
+.sidebar.collapsed .badge-icon-pill { font-size: 0.9rem; padding: 2px 3px; }
 .sidebar.collapsed .sidebar-user { justify-content: center; padding: 1rem; }
 .sidebar.collapsed .sidebar-header { justify-content: center; }
 .sidebar.collapsed .sidebar-toggle { margin: 0; }
@@ -568,6 +574,11 @@ input, select, textarea { font-family: inherit; }
 .cbt-timer.danger { background: linear-gradient(135deg, var(--red), var(--red-light)); box-shadow: 0 4px 14px var(--red-glow); animation: timerPulse 1s infinite; }
 
 @keyframes timerPulse { 0%,100%{opacity:1;} 50%{opacity:0.7;} }
+@keyframes tierFloat  { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-6px);} }
+@keyframes scaleIn    { 0%{opacity:0;transform:scale(0.7);} 100%{opacity:1;transform:scale(1);} }
+@keyframes bounceIn   { 0%{transform:scale(0.3);opacity:0;} 60%{transform:scale(1.15);opacity:1;} 80%{transform:scale(0.95);} 100%{transform:scale(1);} }
+@keyframes slideDown  { 0%{opacity:0;transform:translateY(-12px);} 100%{opacity:1;transform:translateY(0);} }
+
 
 .cbt-body {
     flex: 1; display: flex; overflow: hidden;
