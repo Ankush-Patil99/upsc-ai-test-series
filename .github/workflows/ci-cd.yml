@@ -7,25 +7,10 @@ on:
     branches: [main]
 
 jobs:
-  # ── Stage 1: Lint & Test ────────────────────────────────────────────────
+  # ── Stage 1: Run Tests ───────────────────────────────────────────────────
   test:
     name: Run Tests
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: ankane/pgvector:latest
-        env:
-          POSTGRES_USER: upsc_user
-          POSTGRES_PASSWORD: upsc_password
-          POSTGRES_DB: upsc_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U upsc_user -d upsc_db"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -36,41 +21,28 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest httpx psycopg2-binary
-
-      - name: Enable pgvector extension
-        run: |
-          python -c "
-          import time, psycopg2
-          for i in range(15):
-              try:
-                  conn = psycopg2.connect('postgresql://upsc_user:upsc_password@localhost:5432/upsc_db')
-                  cur = conn.cursor()
-                  cur.execute('CREATE EXTENSION IF NOT EXISTS vector;')
-                  conn.commit()
-                  conn.close()
-                  print('pgvector extension enabled successfully!')
-                  break
-              except Exception as e:
-                  print(f'Waiting for database... ({e})')
-                  time.sleep(2)
-          else:
-              print('Database connection timed out.')
-              exit(1)
-          "
+          pip install pytest httpx
 
       - name: Run PyTest suite
         env:
+          SECRET_KEY: ci-test-secret-key-do-not-use-in-production
           DATABASE_URL: postgresql://upsc_user:upsc_password@localhost:5432/upsc_db
-          SECRET_KEY: ci-test-secret-key
         run: |
           python -m pytest tests/ -v --tb=short
 
-  # ── Stage 2: Build & Push Docker Image ──────────────────────────────────
+  # ── Stage 2: Build Docker Image ──────────────────────────────────────────
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
@@ -84,19 +56,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/upsc-test-series:latest
-            ${{ secrets.DOCKER_USERNAME }}/upsc-test-series:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Build Docker image (verify it compiles)
+        run: |
+          docker build -t upsc-test-series:ci-check .
