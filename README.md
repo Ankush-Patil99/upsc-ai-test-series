@@ -61,7 +61,7 @@ This platform automates the full pipeline:
 Current Affairs Collection → Embedding → Retrieval → MCQ Generation
 ```
 
-No manual curation. No API token limits. Runs entirely on local hardware.
+No manual curation. No API token limits. LLM inference runs entirely on local hardware.
 
 ---
 
