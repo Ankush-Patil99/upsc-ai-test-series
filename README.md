@@ -61,7 +61,7 @@ This platform automates the full pipeline:
 Current Affairs Collection → Embedding → Retrieval → MCQ Generation
 ```
 
-No manual curation. No API token limits. LLM inference runs entirely on local hardware.
+No manual curation. No API token limits. Runs entirely on local hardware.
 
 ---
 
@@ -85,12 +85,12 @@ No manual curation. No API token limits. LLM inference runs entirely on local ha
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    INGESTION PIPELINE (24hr)                    │
-│                                                                 │
-│  The Hindu (RSS) ─┐                                             │
-│  Indian Express ──┼──▶ Chunk (1200 chars) ──▶ Classify ──▶    │
+│                    INGESTION PIPELINE (24hr)                     │
+│                                                                   │
+│  The Hindu (RSS) ─┐                                              │
+│  Indian Express ──┼──▶ Chunk (1200 chars) ──▶ Classify ──▶       │
 │  ForumIAS (HTTP) ─┘       (overlap: 200)          ↕             │
-│                         Deduplicate (L2 < 0.15) ──▶ pgvector   │
+│                         Deduplicate (L2 < 0.15) ──▶ pgvector    │
 └──────────────────────────────────────────┬──────────────────────┘
                                            │
                                     ┌──────▼──────┐
@@ -99,21 +99,21 @@ No manual curation. No API token limits. LLM inference runs entirely on local ha
                                     └──────┬──────┘
                                            │
 ┌──────────────────────────────────────────▼──────────────────────┐
-│                    LANGGRAPH RAG PIPELINE                       │
-│                                                                 │
-│   Retrieve (k=4 facts + k=3 PYQs)                               │
-│       │                                                         │
-│       ▼                                                         │
-│   Draft MCQ  ◀─────────────────────────────────┐               │
-│       │                                         │ HALLUCINATED  │
-│       ▼                                         │               │
-│   Critique (LLM-as-judge) ─── PASS ──▶ Final MCQ               │
-│       │                                         │               │
-│       └──── HALLUCINATED ───────────────────────┘  (max 3x)     │
+│                    LANGGRAPH RAG PIPELINE                         │
+│                                                                   │
+│   Retrieve (k=4 facts + k=3 PYQs)                                │
+│       │                                                           │
+│       ▼                                                           │
+│   Draft MCQ  ◀─────────────────────────────────┐                 │
+│       │                                         │ HALLUCINATED    │
+│       ▼                                         │                 │
+│   Critique (LLM-as-judge) ─── PASS ──▶ Final MCQ                 │
+│       │                                         │                 │
+│       └──── HALLUCINATED ───────────────────────┘  (max 3x)      │
 └─────────────────────────────────────────────────────────────────┘
                                            │
                               ┌────────────▼────────────┐
-                              │  FastAPI + JWT Auth     │
+                              │  FastAPI + JWT Auth      │
                               └────────────┬────────────┘
                                            │
                               ┌────────────▼────────────┐
@@ -128,22 +128,22 @@ No manual curation. No API token limits. LLM inference runs entirely on local ha
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                   GitHub Actions CI/CD                       │
+│                   GitHub Actions CI/CD                        │
 │  ┌───────────┐    ┌──────────────┐                           │
-│  │  4 pytest │───▶│ Docker Build │  Stage 3 (push + deploy) │
+│  │  4 pytest │───▶│ Docker Build │  Stage 3 (push + deploy)  │
 │  │   tests   │    │  ci-check    │  not yet wired            │
 │  └───────────┘    └──────────────┘                           │
 └──────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────┐
-│                   Application Stack                          │
-│                                                              │
-│  FastAPI ──▶ PostgreSQL + pgvector ──▶ LangGraph Pipeline   │
-│     │                                          │             │
+│                   Application Stack                           │
+│                                                               │
+│  FastAPI ──▶ PostgreSQL + pgvector ──▶ LangGraph Pipeline    │
+│     │                                          │              │
 │     │                              Ollama (Llama 3.1 8B)     │
 │     │                              RTX 5050 · 8GB VRAM       │
-│     │                                          │             │
-│     └────────────── LangSmith Tracing ◀────────┘            │
+│     │                                          │              │
+│     └────────────── LangSmith Tracing ◀────────┘             │
 └──────────────────────────────────────────────────────────────┘
 ```
 
