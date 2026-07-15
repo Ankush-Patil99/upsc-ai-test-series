@@ -32,6 +32,7 @@ prototype folder/
 Generated/
 Scraper_Git_Push/
 UPSC_TestSeires_LangGraph_based_Pipeline-main/
+utils/
 
 # Secrets
 FULL_PIPELINE/vision_session.json
