@@ -75,7 +75,7 @@ No manual curation. No API token limits. Runs entirely on local hardware.
 | **JWT + Google Auth** | bcrypt + python-jose | Sliding-window rate limiting, token blacklist on logout, Google Sign-In (OAuth2) |
 | **CBT Exam Frontend** | Vanilla HTML/CSS/JS | 242KB interactive UI — timer, subject tabs, real-time score analytics |
 | **24hr Auto-Scraping** | APScheduler + BeautifulSoup | Scheduled pipeline scrapes sources, classifies, embeds, and deduplicates daily |
-| **LLMOps Tracing** | LangSmith | Full observability — latency, token usage, hallucination rate per LangGraph run |
+| **LLMOps Tracing** | LangSmith | Full observability — latency, token usage, and critique trace logged per LangGraph run |
 | **Containerized** | Docker + Docker Compose | Production `Dockerfile` + `docker-compose.prod.yml` for one-command deployment |
 | **CI Verification** | GitHub Actions | Automated PyTest → Docker build on every push to `main` |
 
@@ -188,6 +188,10 @@ Moving classification and embedding into a separately scheduled ingestion pipeli
 | **Splitter** | `RecursiveCharacterTextSplitter` |
 | **Deduplication** | L2 distance < 0.15 — chunk skipped if near-duplicate found |
 | **Retrieval k** | k=4 textbook facts + k=3 PYQ patterns |
+
+### Database Schema
+
+PostgreSQL stores all platform data across six tables: `users` (credentials, streaks, roles), `test_sessions` (every exam attempt with score and time), `taxonomy_scores` (per-subject mastery percentages), `mock_tests` (pre-generated question sets), `test_questions` (individual MCQs with rationale and mains hints), and `universal_question_bank` (384-dimensional pgvector embeddings for semantic retrieval).
 
 ---
 
@@ -396,7 +400,7 @@ if os.getenv("LANGCHAIN_API_KEY"):
 | **Local** | ✅ Active — `LANGCHAIN_API_KEY` configured in `.env` |
 | **Production** | Not configured (EC2 not yet deployed) |
 
-Every LangGraph run is traced with full latency breakdown, token counts, and hallucination detection events.
+Every LangGraph run is traced with full latency breakdown and token counts. The critique output (PASS / HALLUCINATED) is returned in the API response as `critique_trace` and visible in LangSmith run logs.
 
 ---
 
@@ -426,7 +430,7 @@ Two sequential 8B model calls on a single GPU accounts for the latency.
 
 ### Production Path
 
-Replace local Ollama with **Groq API**. Expected latency: **< 2 seconds**. The codebase already has `GROQ_API_KEY` wired in `.env` — extending it to the MCQ pipeline is a small configuration change.
+Replace local Ollama with **Groq API**. Expected latency: **< 2 seconds**. `GROQ_API_KEY` is stored in `.env` — swapping `ChatOllama` for `ChatGroq` in `generator.py` is a one-line configuration change.
 
 > **Note for users:** This is background batch generation latency. MCQs are pre-generated and stored in the database. Users loading an exam see **zero generation wait time**.
 
