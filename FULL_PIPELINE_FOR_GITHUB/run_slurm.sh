@@ -17,7 +17,7 @@
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON="/home/scai/mtech/aib242291/.conda/envs/upsctest/bin/python"
+PYTHON="${SCRIPT_DIR}/.conda/envs/upsctest/bin/python"
 
 echo "=== UPSC MCQ Generator ==="
 echo "Job ID   : $SLURM_JOB_ID"

@@ -1,6 +1,6 @@
 # Database Settings
 db:
-  postgres_url: "postgresql://upsc_user:upsc_password@127.0.0.1:5432/upsc_db"
+  postgres_url: "postgresql://upsc_user:your_password@127.0.0.1:5432/upsc_db"
 
 # Model Settings
 models:

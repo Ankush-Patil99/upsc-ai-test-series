@@ -1,5 +1,5 @@
 # UPSC AI Engine V2.1 — Complete Project Overview
-**Location:** `/home/scai/mtech/aib242291/UPSC_Test_Agent`
+**Location:** `FULL_PIPELINE_FOR_GITHUB/`
 **Date:** April 22, 2026 (Updated — CA Scraper Integration)
 
 ## 1. Project Goal
