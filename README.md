@@ -495,7 +495,14 @@ The primary constraint is the LLM, not the infrastructure:
 - Persistent token blacklist (Redis)
 
 ---
+## 👤 Author
 
+**Ankush Patil**
+- GitHub: [@Ankush-Patil99](https://github.com/Ankush-Patil99)
+- LinkedIn: [Ankush Patil](https://www.linkedin.com/in/ankush-patil-48989739a)
+- Gmail: [Email me](https://mail.google.com/mail/?view=cm&fs=1&to=ankpatil1203@gmail.com)
+- Website: [ankush-patil99.github.io](https://ankush-patil99.github.io/)
+---
 ## 📄 License
 
 MIT License — built as a portfolio and learning project.
